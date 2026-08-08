@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tallyroll — screen recorder with no watermark and no time limit</title>
+<meta name="description" content="Record your screen and camera in the browser. No watermark, no time limit, no upload, no account. Everything stays on your machine.">
+<meta name="theme-color" content="#10131F">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#10131F;
+  --panel:#171B2B;
+  --raise:#1E2437;
+  --line:#2A3149;
+  --mist:#8891AE;
+  --paper:#E8ECF7;
+  --armed:#7DD3FC;
+  --tally:#FF3B30;
+  --ok:#86EFAC;
+  --r:4px;
+  --pad:clamp(16px,3vw,28px);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--ink);
+  color:var(--paper);
+  font-family:'Archivo',system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  display:flex;flex-direction:column;
+  min-height:100dvh;
+}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+button:focus-visible,a:focus-visible,select:focus-visible{outline:2px solid var(--armed);outline-offset:2px}
+
+/* ── top rail ────────────────────────────── */
+.rail{
+  display:flex;align-items:center;gap:14px;
+  padding:12px var(--pad);
+  border-bottom:1px solid var(--line);
+  flex-wrap:wrap;
+}
+.mark{display:flex;align-items:center;gap:9px;margin-right:auto}
+.lamp{
+  width:9px;height:9px;border-radius:50%;
+  background:var(--line);
+  box-shadow:0 0 0 3px rgba(125,211,252,.06);
+  transition:background .18s, box-shadow .18s;
+}
+body[data-state="live"] .lamp{background:var(--tally);box-shadow:0 0 0 3px rgba(255,59,48,.18);animation:pulse 1.6s ease-in-out infinite}
+body[data-state="paused"] .lamp{background:#FBBF24;box-shadow:0 0 0 3px rgba(251,191,36,.15)}
+body[data-state="done"] .lamp{background:var(--ok);box-shadow:0 0 0 3px rgba(134,239,172,.15)}
+@keyframes pulse{50%{opacity:.35}}
+.wordmark{font-weight:700;letter-spacing:-.02em;font-size:15px}
+.wordmark span{color:var(--mist);font-weight:500}
+.tc{
+  font-size:clamp(15px,2.4vw,19px);font-weight:500;letter-spacing:.06em;
+  color:var(--mist);font-variant-numeric:tabular-nums;
+  transition:color .18s;
+}
+body[data-state="live"] .tc{color:var(--tally)}
+body[data-state="paused"] .tc{color:#FBBF24}
+body[data-state="done"] .tc{color:var(--ok)}
+.badge{
+  font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--mist);
+  border:1px solid var(--line);border-radius:var(--r);padding:5px 8px;
+}
+
+/* ── viewfinder ──────────────────────────── */
+.stage{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  padding:var(--pad);min-height:0;
+}
+.finder{
+  position:relative;width:100%;max-width:1020px;aspect-ratio:16/9;
+  background:
+    linear-gradient(var(--panel),var(--panel)) padding-box,
+    radial-gradient(120% 120% at 50% 0%, #202741 0%, #121623 70%) border-box;
+  border:1px solid var(--line);border-radius:var(--r);
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;
+}
+.finder video{width:100%;height:100%;object-fit:contain;background:#0B0E17;display:none}
+.finder video.on{display:block}
+/* corner crop marks */
+.crop{position:absolute;inset:14px;pointer-events:none}
+.crop i{position:absolute;width:22px;height:22px;border:1px solid var(--line);transition:border-color .2s}
+.crop i:nth-child(1){top:0;left:0;border-right:0;border-bottom:0}
+.crop i:nth-child(2){top:0;right:0;border-left:0;border-bottom:0}
+.crop i:nth-child(3){bottom:0;left:0;border-right:0;border-top:0}
+.crop i:nth-child(4){bottom:0;right:0;border-left:0;border-top:0}
+body[data-state="idle"] .crop i{border-color:rgba(125,211,252,.35)}
+body[data-state="live"] .crop i{border-color:var(--tally)}
+body[data-state="paused"] .crop i{border-color:#FBBF24}
+
+.slate{text-align:center;padding:24px;max-width:440px}
+.slate h1{font-size:clamp(21px,3.4vw,30px);font-weight:600;letter-spacing:-.025em;line-height:1.2}
+.slate p{color:var(--mist);margin-top:10px;font-size:14px;line-height:1.6}
+.eyebrow{
+  font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--armed);margin-bottom:12px;
+}
+.count{
+  position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(11,14,23,.9);backdrop-filter:blur(2px);z-index:3;
+}
+.count.on{display:flex}
+.count b{font-family:'IBM Plex Mono',monospace;font-size:clamp(64px,14vw,140px);font-weight:500;color:var(--tally);font-variant-numeric:tabular-nums}
+.err{
+  position:absolute;left:16px;right:16px;bottom:16px;z-index:4;
+  background:var(--raise);border:1px solid var(--tally);border-left-width:3px;
+  border-radius:var(--r);padding:12px 14px;font-size:13px;line-height:1.5;display:none;
+}
+.err.on{display:block}
+
+/* ── control deck ────────────────────────── */
+.deck{border-top:1px solid var(--line);background:var(--panel)}
+.row{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:14px var(--pad);
+}
+.row+.row{border-top:1px solid var(--line)}
+.lbl{
+  font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--mist);width:74px;flex-shrink:0;
+}
+.seg{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.seg button{
+  padding:7px 13px;font-size:12.5px;font-weight:500;color:var(--mist);
+  transition:background .14s,color .14s;
+}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--raise);color:var(--paper)}
+.seg button:hover:not([aria-pressed="true"]){color:var(--paper)}
+select{
+  background:var(--raise);border:1px solid var(--line);border-radius:var(--r);
+  color:var(--paper);padding:7px 10px;font-size:12.5px;font-family:inherit;
+}
+.hint{font-size:12px;color:var(--mist);margin-left:auto;font-family:'IBM Plex Mono',monospace}
+
+/* actions */
+.acts{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:16px var(--pad) calc(16px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+.btn{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:12px 20px;border-radius:var(--r);font-weight:600;font-size:14px;
+  border:1px solid var(--line);background:var(--raise);
+  transition:background .14s,border-color .14s,opacity .14s;
+}
+.btn:hover{background:#252C42}
+.btn[disabled]{opacity:.35;cursor:not-allowed}
+.btn.rec{background:var(--tally);border-color:var(--tally);color:#fff}
+.btn.rec:hover{background:#E5342A}
+.btn.go{background:var(--armed);border-color:var(--armed);color:#0B1220}
+.btn.go:hover{background:#9AE0FD}
+.dot{width:9px;height:9px;border-radius:50%;background:currentColor}
+.sq{width:9px;height:9px;background:currentColor}
+
+/* ── footer note ─────────────────────────── */
+.note{
+  border-top:1px solid var(--line);padding:20px var(--pad) 28px;
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:18px;
+}
+.note div{font-size:12.5px;color:var(--mist);line-height:1.6}
+.note strong{display:block;color:var(--paper);font-size:12px;font-weight:600;margin-bottom:4px}
+.note code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--armed)}
+
+@media (max-width:640px){
+  .lbl{width:100%}
+  .hint{margin-left:0;width:100%}
+  .acts .btn{flex:1;justify-content:center}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body data-state="idle">
+
+<header class="rail">
+  <div class="mark">
+    <span class="lamp" aria-hidden="true"></span>
+    <span class="wordmark">Tallyroll <span>/ local recorder</span></span>
+  </div>
+  <span class="badge" id="fmtBadge">webm</span>
+  <span class="tc mono" id="tc" role="timer" aria-live="off">00:00:00</span>
+</header>
+
+<main class="stage">
+  <div class="finder" id="finder">
+    <div class="crop" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+    <div class="slate" id="slate">
+      <p class="eyebrow">Nothing leaves this device</p>
+      <h1>Record your screen. Keep the whole thing.</h1>
+      <p>No watermark, no five-minute cutoff, no account, no upload. Pick your sources below and roll.</p>
+    </div>
+
+    <video id="monitor" muted playsinline></video>
+    <video id="playback" controls playsinline></video>
+
+    <div class="count" id="count"><b id="countN">3</b></div>
+    <div class="err" id="err"></div>
+  </div>
+</main>
+
+<section class="deck">
+  <div class="row">
+    <span class="lbl">Camera</span>
+    <div class="seg" role="group" aria-label="Camera">
+      <button id="camOff" aria-pressed="true">Off</button>
+      <button id="camOn" aria-pressed="false">Bubble</button>
+    </div>
+    <select id="camPos" aria-label="Camera position">
+      <option value="br">Bottom right</option>
+      <option value="bl">Bottom left</option>
+      <option value="tr">Top right</option>
+      <option value="tl">Top left</option>
+    </select>
+    <span class="hint" id="camHint">overlay burned into the recording</span>
+  </div>
+
+  <div class="row">
+    <span class="lbl">Audio</span>
+    <div class="seg" role="group" aria-label="Microphone">
+      <button id="micOn" aria-pressed="true">Mic on</button>
+      <button id="micOff" aria-pressed="false">Mic off</button>
+    </div>
+    <div class="seg" role="group" aria-label="System audio">
+      <button id="sysOn" aria-pressed="true">System on</button>
+      <button id="sysOff" aria-pressed="false">System off</button>
+    </div>
+    <span class="hint">tick “share audio” in the picker for system sound</span>
+  </div>
+
+  <div class="row">
+    <span class="lbl">Quality</span>
+    <select id="quality" aria-label="Quality">
+      <option value="8000000">High — 8 Mbps</option>
+      <option value="4000000" selected>Balanced — 4 Mbps</option>
+      <option value="1500000">Small file — 1.5 Mbps</option>
+    </select>
+    <select id="fps" aria-label="Frame rate">
+      <option value="30" selected>30 fps</option>
+      <option value="60">60 fps</option>
+      <option value="15">15 fps</option>
+    </select>
+    <span class="hint" id="sizeHint">—</span>
+  </div>
+</section>
+
+<div class="acts">
+  <button class="btn rec" id="start"><span class="dot"></span> Start recording</button>
+  <button class="btn" id="pause" disabled>Pause</button>
+  <button class="btn" id="stop" disabled><span class="sq"></span> Stop</button>
+  <button class="btn go" id="save" disabled>Save file</button>
+  <button class="btn" id="again" disabled>New recording</button>
+</div>
+
+<footer class="note">
+  <div><strong>Where your video goes</strong>Nowhere. Capture, mixing and encoding all run in this tab. There is no server to upload to.</div>
+  <div><strong>Length limit</strong>None. The only ceiling is your free disk space.</div>
+  <div><strong>File format</strong><code id="fmtNote">video/webm</code> — plays in any browser, VLC, Premiere, DaVinci Resolve.</div>
+  <div><strong>Install it</strong>Use your browser menu → Install, and it opens like a native app, offline.</div>
+</footer>
+
+<script>
+(() => {
+'use strict';
+
+const $ = id => document.getElementById(id);
+const body = document.body;
+const ui = {
+  tc:$('tc'), slate:$('slate'), monitor:$('monitor'), playback:$('playback'),
+  count:$('count'), countN:$('countN'), err:$('err'),
+  start:$('start'), pause:$('pause'), stop:$('stop'), save:$('save'), again:$('again'),
+  quality:$('quality'), fps:$('fps'), camPos:$('camPos'),
+  fmtBadge:$('fmtBadge'), fmtNote:$('fmtNote'), sizeHint:$('sizeHint'), camHint:$('camHint')
+};
+
+const opt = { cam:false, mic:true, sys:true };
+
+/* ── segmented control wiring ───────────── */
+function pair(onBtn, offBtn, key){
+  const set = v => {
+    opt[key] = v;
+    onBtn.setAttribute('aria-pressed', String(v));
+    offBtn.setAttribute('aria-pressed', String(!v));
+  };
+  onBtn.onclick = () => set(true);
+  offBtn.onclick = () => set(false);
+}
+pair($('camOn'), $('camOff'), 'cam');
+pair($('micOn'), $('micOff'), 'mic');
+pair($('sysOn'), $('sysOff'), 'sys');
+
+/* ── pick the best container the browser can encode ── */
+const CANDIDATES = [
+  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+  'video/mp4',
+  'video/webm;codecs=vp9,opus',
+  'video/webm;codecs=vp8,opus',
+  'video/webm'
+];
+const MIME = CANDIDATES.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+const EXT = MIME.includes('mp4') ? 'mp4' : 'webm';
+ui.fmtBadge.textContent = EXT;
+ui.fmtNote.textContent = MIME ? MIME.split(';')[0] : 'unsupported';
+
+/* ── state ──────────────────────────────── */
+let recorder = null, chunks = [], blob = null, blobUrl = null;
+let screenStream = null, camStream = null, micStream = null, mixStream = null;
+let audioCtx = null, drawTimer = null, canvas = null, ctx = null;
+let camVideo = null, screenVideo = null;
+let t0 = 0, accrued = 0, tick = null, aborted = false;
+
+const setState = s => { body.dataset.state = s; };
+
+function fail(msg){
+  ui.err.textContent = msg;
+  ui.err.classList.add('on');
+  setTimeout(() => ui.err.classList.remove('on'), 7000);
+}
+
+function fmtTime(ms){
+  const s = Math.floor(ms/1000);
+  const h = String(Math.floor(s/3600)).padStart(2,'0');
+  const m = String(Math.floor(s%3600/60)).padStart(2,'0');
+  const x = String(s%60).padStart(2,'0');
+  return `${h}:${m}:${x}`;
+}
+const fmtBytes = b => b > 1048576 ? (b/1048576).toFixed(1)+' MB' : Math.round(b/1024)+' KB';
+
+function startClock(){
+  stopClock();
+  tick = setInterval(() => {
+    ui.tc.textContent = fmtTime(accrued + (t0 ? Date.now()-t0 : 0));
+    const n = chunks.reduce((a,c) => a+c.size, 0);
+    if (n) ui.sizeHint.textContent = fmtBytes(n) + ' so far';
+  }, 250);
+}
+const stopClock = () => { if (tick) clearInterval(tick); tick = null; };
+
+/* Background tabs throttle setInterval/rAF, which would freeze the camera
+   overlay the moment the user switches windows — exactly when they're
+   recording. A worker timer keeps ticking at full rate. */
+function makeTicker(fps, fn){
+  const src = `let h;onmessage=e=>{clearInterval(h);if(e.data>0)h=setInterval(()=>postMessage(0),e.data)}`;
+  const w = new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
+  w.onmessage = fn;
+  w.postMessage(Math.max(8, Math.round(1000/fps)));
+  return w;
+}
+
+/* ── compositing: screen + camera bubble onto one canvas ── */
+function buildCanvas(fps){
+  const track = screenStream.getVideoTracks()[0];
+  const st = track.getSettings();
+  canvas = document.createElement('canvas');
+  canvas.width  = st.width  || 1920;
+  canvas.height = st.height || 1080;
+  ctx = canvas.getContext('2d', { alpha:false });
+
+  screenVideo = document.createElement('video');
+  screenVideo.srcObject = screenStream; screenVideo.muted = true;
+  screenVideo.playsInline = true; screenVideo.play().catch(()=>{});
+
+  camVideo = document.createElement('video');
+  camVideo.srcObject = camStream; camVideo.muted = true;
+  camVideo.playsInline = true; camVideo.play().catch(()=>{});
+
+  const draw = () => {
+    if (screenVideo.videoWidth){
+      // the shared surface can change size mid-recording (window resize)
+      if (canvas.width !== screenVideo.videoWidth || canvas.height !== screenVideo.videoHeight){
+        canvas.width = screenVideo.videoWidth;
+        canvas.height = screenVideo.videoHeight;
+      }
+      ctx.drawImage(screenVideo, 0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.fillStyle = '#0B0E17';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+    }
+    if (camVideo.videoWidth){
+      const d = Math.round(Math.min(canvas.width, canvas.height) * 0.22);
+      const m = Math.round(d * 0.28);
+      const pos = ui.camPos.value;
+      const x = pos.includes('l') ? m : canvas.width  - d - m;
+      const y = pos.startsWith('t') ? m : canvas.height - d - m;
+      const side = Math.min(camVideo.videoWidth, camVideo.videoHeight);
+      const sx = (camVideo.videoWidth  - side)/2;
+      const sy = (camVideo.videoHeight - side)/2;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x + d/2, y + d/2, d/2, 0, Math.PI*2);
+      ctx.closePath();
+      ctx.shadowColor = 'rgba(0,0,0,.45)';
+      ctx.shadowBlur = Math.round(d*0.09);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.clip();
+      // mirror the camera so it reads naturally to the presenter
+      ctx.translate(x + d, y); ctx.scale(-1, 1);
+      ctx.drawImage(camVideo, sx, sy, side, side, 0, 0, d, d);
+      ctx.restore();
+    }
+  };
+  drawTimer = makeTicker(fps, draw);
+  return canvas.captureStream(fps);
+}
+
+/* ── mix however many audio sources are actually present ── */
+function buildAudio(){
+  const sources = [];
+  if (opt.sys && screenStream.getAudioTracks().length) sources.push(screenStream);
+  if (micStream && micStream.getAudioTracks().length)  sources.push(micStream);
+  if (!sources.length) return null;
+  if (sources.length === 1) return sources[0].getAudioTracks()[0];
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const dest = audioCtx.createMediaStreamDestination();
+  sources.forEach(s => audioCtx.createMediaStreamSource(s).connect(dest));
+  return dest.stream.getAudioTracks()[0];
+}
+
+/* ── run ────────────────────────────────── */
+async function begin(){
+  if (!MIME) return fail('This browser cannot record video. Chrome, Edge or Firefox on desktop will work.');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+    return fail('Screen capture needs a desktop browser served over https. On a phone, screen capture is not available.');
+  }
+
+  aborted = false;
+  const fps = parseInt(ui.fps.value, 10);
+
+  try {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: fps },
+      audio: opt.sys
+    });
+  } catch (e){
+    return fail(e && e.name === 'NotAllowedError'
+      ? 'Screen share was dismissed. Press Start recording and choose a screen, window or tab.'
+      : 'Could not start screen capture: ' + (e && e.message ? e.message : e));
+  }
+
+  if (opt.mic){
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation:true, noiseSuppression:true }
+      });
+    } catch { fail('Microphone unavailable — recording continues without your voice.'); }
+  }
+  if (opt.cam){
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: { width:640, height:640, facingMode:'user' }
+      });
+    } catch { fail('Camera unavailable — recording continues without the bubble.'); opt.cam = false; }
+  }
+
+  // countdown
+  setState('idle');
+  ui.count.classList.add('on');
+  for (let n = 3; n > 0; n--){
+    ui.countN.textContent = n;
+    await new Promise(r => setTimeout(r, 800));
+    if (aborted) { ui.count.classList.remove('on'); return cleanup(); }
+  }
+  ui.count.classList.remove('on');
+
+  // assemble the outgoing stream
+  const videoTrack = opt.cam
+    ? buildCanvas(fps).getVideoTracks()[0]
+    : screenStream.getVideoTracks()[0];
+  const audioTrack = buildAudio();
+  mixStream = new MediaStream(audioTrack ? [videoTrack, audioTrack] : [videoTrack]);
+
+  // live monitor
+  ui.slate.style.display = 'none';
+  ui.monitor.srcObject = screenStream;
+  ui.monitor.classList.add('on');
+  ui.monitor.play().catch(()=>{});
+
+  chunks = [];
+  try {
+    recorder = new MediaRecorder(mixStream, {
+      mimeType: MIME,
+      videoBitsPerSecond: parseInt(ui.quality.value, 10)
+    });
+  } catch (e){
+    fail('Recorder rejected these settings. Try a lower quality.');
+    return cleanup();
+  }
+
+  recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onstop = finish;
+  recorder.onerror = () => { fail('Recording stopped unexpectedly. Whatever was captured is still saved.'); };
+  recorder.start(1000); // flush every second so a crash never costs everything
+
+  // the browser's own "Stop sharing" bar must end the take too
+  screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+    if (recorder && recorder.state !== 'inactive') end();
+  });
+
+  t0 = Date.now(); accrued = 0;
+  startClock(); setState('live');
+  ui.start.disabled = true; ui.pause.disabled = false; ui.stop.disabled = false;
+  ui.save.disabled = true; ui.again.disabled = true;
+  ui.pause.textContent = 'Pause';
+}
+
+function togglePause(){
+  if (!recorder) return;
+  if (recorder.state === 'recording'){
+    recorder.pause();
+    accrued += Date.now() - t0; t0 = 0;
+    setState('paused'); ui.pause.textContent = 'Resume';
+  } else if (recorder.state === 'paused'){
+    recorder.resume();
+    t0 = Date.now();
+    setState('live'); ui.pause.textContent = 'Pause';
+  }
+}
+
+function end(){
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+  else { aborted = true; cleanup(); }
+}
+
+function finish(){
+  stopClock();
+  if (t0) { accrued += Date.now() - t0; t0 = 0; }
+  ui.tc.textContent = fmtTime(accrued);
+
+  blob = new Blob(chunks, { type: MIME.split(';')[0] || 'video/webm' });
+  if (blobUrl) URL.revokeObjectURL(blobUrl);
+  blobUrl = URL.createObjectURL(blob);
+
+  ui.monitor.classList.remove('on'); ui.monitor.srcObject = null;
+  ui.playback.src = blobUrl;
+  ui.playback.classList.add('on');
+
+  ui.sizeHint.textContent = fmtBytes(blob.size) + ' · ' + fmtTime(accrued);
+  setState('done');
+  ui.start.disabled = true; ui.pause.disabled = true; ui.stop.disabled = true;
+  ui.save.disabled = false; ui.again.disabled = false;
+
+  releaseDevices();
+}
+
+function releaseDevices(){
+  [screenStream, camStream, micStream].forEach(s => s && s.getTracks().forEach(t => t.stop()));
+  screenStream = camStream = micStream = null;
+  if (drawTimer){ drawTimer.postMessage(0); drawTimer.terminate(); drawTimer = null; }
+  if (audioCtx){ audioCtx.close().catch(()=>{}); audioCtx = null; }
+  [screenVideo, camVideo].forEach(v => { if (v) v.srcObject = null; });
+  screenVideo = camVideo = null;
+}
+
+function cleanup(){
+  stopClock(); releaseDevices();
+  recorder = null;
+  setState('idle');
+  ui.start.disabled = false; ui.pause.disabled = true; ui.stop.disabled = true;
+}
+
+function save(){
+  if (!blob) return;
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  const name = `tallyroll-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${EXT}`;
+  const a = document.createElement('a');
+  a.href = blobUrl; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function reset(){
+  ui.playback.classList.remove('on'); ui.playback.removeAttribute('src'); ui.playback.load();
+  if (blobUrl){ URL.revokeObjectURL(blobUrl); blobUrl = null; }
+  blob = null; chunks = [];
+  ui.slate.style.display = '';
+  ui.tc.textContent = '00:00:00';
+  ui.sizeHint.textContent = '—';
+  accrued = 0;
+  setState('idle');
+  ui.start.disabled = false; ui.save.disabled = true; ui.again.disabled = true;
+}
+
+ui.start.onclick = begin;
+ui.pause.onclick = togglePause;
+ui.stop.onclick  = end;
+ui.save.onclick  = save;
+ui.again.onclick = reset;
+
+// don't lose a take to a stray tab close
+window.addEventListener('beforeunload', e => {
+  if (recorder && recorder.state !== 'inactive'){ e.preventDefault(); e.returnValue = ''; }
+});
+
+if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+  ui.camHint.textContent = 'screen capture needs a desktop browser';
+}
+
+if ('serviceWorker' in navigator){
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+})();
+</script>
+</body>
+</html>
