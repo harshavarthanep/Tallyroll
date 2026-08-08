@@ -1,0 +1,17 @@
+{
+  "name": "Tallyroll — local screen recorder",
+  "short_name": "Tallyroll",
+  "description": "Record your screen and camera in the browser. No watermark, no time limit, no account. Share a link that expires when you say.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#10131F",
+  "theme_color": "#10131F",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
