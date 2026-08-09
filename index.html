@@ -119,19 +119,25 @@ body[data-state="done"] .hud{top:0;bottom:auto;justify-content:flex-end;
 .vu i.hot{background:var(--warn)}
 
 /* region picker */
-.region{position:absolute;inset:0;z-index:7;display:none;cursor:crosshair;touch-action:none}
+.region{position:absolute;inset:0;z-index:7;display:none;background:rgba(8,10,18,.58)}
 .region.on{display:block}
-.region .shade{position:absolute;inset:0;background:rgba(8,10,18,.62);transition:opacity .2s}
-.region.drawn .shade{opacity:0}
-.region .box{position:absolute;border:2px solid var(--armed);border-radius:3px;
-  box-shadow:0 0 0 9999px rgba(8,10,18,.62);display:none}
+/* sized in JS to the exact letterboxed video rect, so selection is a plain
+   percentage of this element — no aspect-ratio maths at pointer time */
+.rgnstage{position:absolute;cursor:crosshair;touch-action:none;
+  outline:1px dashed rgba(125,211,252,.4);outline-offset:-1px}
+.region .box{position:absolute;border:2px solid var(--armed);background:rgba(125,211,252,.16);
+  border-radius:2px;display:none;box-shadow:0 0 0 1px rgba(8,10,18,.6)}
 .region .box.on{display:block}
-.region .box::after{content:attr(data-size);position:absolute;left:0;bottom:-24px;
-  font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--armed);white-space:nowrap}
+.region .box::after{content:attr(data-size);position:absolute;left:5px;top:5px;
+  font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--armed);white-space:nowrap;
+  background:rgba(8,10,18,.75);padding:2px 6px;border-radius:3px}
 .region .bar{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;justify-content:center;
-  padding:12px;flex-wrap:wrap;background:linear-gradient(transparent,rgba(8,10,18,.9));z-index:2}
+  padding:12px;flex-wrap:wrap;background:linear-gradient(transparent,rgba(8,10,18,.9));z-index:2;
+  pointer-events:none}
+.region .bar .btn{pointer-events:auto}
 .region .say{position:absolute;left:0;right:0;top:0;padding:14px;text-align:center;z-index:2;
-  font-size:13px;color:var(--paper);background:linear-gradient(rgba(8,10,18,.9),transparent)}
+  font-size:13px;color:var(--paper);pointer-events:none;
+  background:linear-gradient(rgba(8,10,18,.9),transparent)}
 
 /* ═══ trim ═══ */
 .trim{max-width:1320px;margin:0 auto;width:100%;padding:0 var(--pad) var(--pad);animation:rise .35s var(--ease)}
@@ -405,13 +411,13 @@ kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--
     </div>
 
     <div class="region" id="region">
-      <div class="shade"></div>
-      <div class="box" id="regionBox" data-size=""></div>
-      <div class="say">Drag across the preview to pick the area you want recorded.</div>
+      <div class="rgnstage" id="rgnStage"><div class="box" id="regionBox" data-size=""></div></div>
+      <div class="say" id="regionSay">Drag a box across the preview to pick what gets recorded.</div>
       <div class="bar">
         <button class="btn go" id="regionOk" disabled><svg class="i"><use href="#i-crop"/></svg>Record this area</button>
         <button class="btn" id="regionAll">Use everything</button>
         <button class="btn" id="regionReset">Redraw</button>
+        <button class="btn danger" id="regionCancel"><svg class="i"><use href="#i-close"/></svg>Cancel</button>
       </div>
     </div>
 
@@ -713,7 +719,7 @@ const ui = {};
  'hMic','hCam','hGrab','start','pause','stop','save','share','shareLbl','again','trimBtn',
  'quality','fps','maxLen','camSize','camShape','camMirror','micPick','camPick',
  'fmtChip','sizeTip','modeTip','lib','libList','libAcct','cellBubble','diskNote',
- 'region','regionBox','regionOk','regionAll','regionReset',
+ 'region','rgnStage','regionBox','regionOk','regionAll','regionReset','regionCancel','regionSay',
  'trimPanel','trimTrack','trimSel','trimHead','trimA','trimB','trimRange','trimLen',
  'trimPlay','trimApply','trimRevert','trimClose','trimNote','trimProg','trimBar']
  .forEach(k => ui[k] = $(k));
@@ -742,6 +748,8 @@ function setMode(m){
   const off = m !== 'both';
   [$('pAuto'), $('pFree'), ui.camSize, ui.camShape, ui.camMirror].forEach(el => el.disabled = off);
   ui.cellBubble.classList.toggle('locked', off);
+  if (m === 'cam' && opt.pickArea) setArea(false);
+  $('aPick').disabled = (m === 'cam') || !CAN_SCREEN;
   if (!off) setPlace(opt.place); else ui.dragtip.hidden = true;
 }
 $('mScreen').onclick = () => setMode('screen');
@@ -897,6 +905,7 @@ function buildComposite(fps){
     const main = useScreen ? screenVid : camVid;
     const mirror = ui.camMirror.value === '1';
     if (main && main.videoWidth){
+      gotFrame = true;
       const sw = main.videoWidth, sh = main.videoHeight;
       // crop is normalised so it survives a mid-recording resolution change
       const cx0 = crop ? Math.round(crop.x*sw) : 0, cy0 = crop ? Math.round(crop.y*sh) : 0;
@@ -971,60 +980,99 @@ ui.stageCanvas.addEventListener('pointermove', e => {
   dragging = false; ui.stageCanvas.classList.remove('dragging'); }));
 
 /* ── region picker ─────────────────────── */
+/* The overlay stage is positioned onto the real video rect first, so a selection
+   is just a fraction of that element. No letterbox maths while dragging, and
+   nothing depends on the canvas having been sized yet. */
+function videoRect(){
+  const r = ui.finder.getBoundingClientRect();
+  const cw = ui.stageCanvas.width || 16, ch = ui.stageCanvas.height || 9;
+  const ar = cw / ch;
+  let w = r.width, h = r.width / ar;
+  if (h > r.height){ h = r.height; w = r.height * ar; }
+  return { left:(r.width-w)/2, top:(r.height-h)/2, w, h };
+}
+function layoutRgn(){
+  const v = videoRect();
+  Object.assign(ui.rgnStage.style,
+    { left:v.left+'px', top:v.top+'px', width:v.w+'px', height:v.h+'px' });
+}
+/* don't open the picker until a real frame has arrived, or the aspect ratio
+   would still be the canvas default and every coordinate would be wrong */
+let gotFrame = false;
+function waitFrame(ms){
+  const started = Date.now();
+  return new Promise(res => {
+    const tick = () => (gotFrame || Date.now()-started > ms) ? res() : setTimeout(tick, 60);
+    tick();
+  });
+}
 function pickRegion(){
   return new Promise(resolve => {
     let a = null, b = null, drawing = false;
+    layoutRgn();
     ui.region.classList.add('on');
-    ui.region.classList.remove('drawn');
     ui.regionBox.classList.remove('on');
     ui.regionOk.disabled = true;
+    ui.regionSay.textContent = 'Drag a box across the preview to pick what gets recorded.';
+    window.addEventListener('resize', layoutRgn);
 
+    const pt = e => {
+      const r = ui.rgnStage.getBoundingClientRect();
+      return { x: Math.min(1, Math.max(0, (e.clientX-r.left)/r.width)),
+               y: Math.min(1, Math.max(0, (e.clientY-r.top)/r.height)) };
+    };
     const paint = () => {
       if (!a || !b) return;
-      const p = pointToNorm({ clientX:0, clientY:0 }, ui.region);
-      const x1 = Math.min(a.x,b.x), y1 = Math.min(a.y,b.y);
-      const x2 = Math.max(a.x,b.x), y2 = Math.max(a.y,b.y);
-      const rb = ui.region.getBoundingClientRect();
-      ui.regionBox.style.left   = (p.ox - rb.left + x1*p.w) + 'px';
-      ui.regionBox.style.top    = (p.oy - rb.top  + y1*p.h) + 'px';
-      ui.regionBox.style.width  = ((x2-x1)*p.w) + 'px';
-      ui.regionBox.style.height = ((y2-y1)*p.h) + 'px';
-      ui.regionBox.dataset.size = Math.round((x2-x1)*ui.stageCanvas.width) + ' × ' +
-                                  Math.round((y2-y1)*ui.stageCanvas.height) + ' px';
+      const x1=Math.min(a.x,b.x), y1=Math.min(a.y,b.y);
+      const x2=Math.max(a.x,b.x), y2=Math.max(a.y,b.y);
+      const W = ui.rgnStage.clientWidth, H = ui.rgnStage.clientHeight;
+      Object.assign(ui.regionBox.style, {
+        left:(x1*W)+'px', top:(y1*H)+'px',
+        width:((x2-x1)*W)+'px', height:((y2-y1)*H)+'px' });
+      ui.regionBox.dataset.size =
+        Math.round((x2-x1)*ui.stageCanvas.width) + ' × ' +
+        Math.round((y2-y1)*ui.stageCanvas.height) + ' px';
       ui.regionBox.classList.add('on');
-      ui.region.classList.add('drawn');
-      ui.regionOk.disabled = (x2-x1) < .04 || (y2-y1) < .04;
+      ui.regionOk.disabled = (x2-x1) < .03 || (y2-y1) < .03;
     };
-    const clampPt = e => { const p = pointToNorm(e, ui.region);
-      return { x:Math.min(1,Math.max(0,p.x)), y:Math.min(1,Math.max(0,p.y)) }; };
-
-    const down = e => { if (e.target.closest('.bar')) return;
-      drawing = true; a = clampPt(e); b = a; ui.region.setPointerCapture(e.pointerId); paint(); };
-    const move = e => { if (!drawing) return; b = clampPt(e); paint(); };
-    const up = () => { drawing = false; };
+    const down = e => {
+      if (e.target.closest('.bar')) return;      // let the buttons be buttons
+      drawing = true; a = pt(e); b = a;
+      try { ui.region.setPointerCapture(e.pointerId); } catch {}
+      paint(); e.preventDefault();
+    };
+    const move = e => { if (drawing){ b = pt(e); paint(); } };
+    const up = () => { drawing = false;
+      if (a && b && (Math.abs(b.x-a.x) < .03 || Math.abs(b.y-a.y) < .03))
+        ui.regionSay.textContent = 'That box is too small — drag a larger area.'; };
     ui.region.addEventListener('pointerdown', down);
     ui.region.addEventListener('pointermove', move);
     ui.region.addEventListener('pointerup', up);
     ui.region.addEventListener('pointercancel', up);
+    const onKey = e => { if (e.key === 'Escape'){ e.preventDefault(); finish(null); } };
+    document.addEventListener('keydown', onKey);
 
-    const finish = val => {
+    function finish(val){
       ui.region.removeEventListener('pointerdown', down);
       ui.region.removeEventListener('pointermove', move);
       ui.region.removeEventListener('pointerup', up);
       ui.region.removeEventListener('pointercancel', up);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', layoutRgn);
       ui.region.classList.remove('on');
-      ui.region.classList.remove('drawn');
       ui.regionBox.classList.remove('on');
       resolve(val);
-    };
+    }
     ui.regionOk.onclick = () => {
       if (!a || !b) return finish(null);
-      const x1 = Math.min(a.x,b.x), y1 = Math.min(a.y,b.y);
-      finish({ x:x1, y:y1, w:Math.abs(b.x-a.x), h:Math.abs(b.y-a.y) });
+      finish({ x:Math.min(a.x,b.x), y:Math.min(a.y,b.y),
+               w:Math.abs(b.x-a.x), h:Math.abs(b.y-a.y) });
     };
     ui.regionAll.onclick = () => finish(null);
-    ui.regionReset.onclick = () => { a = b = null; ui.regionBox.classList.remove('on');
-      ui.region.classList.remove('drawn'); ui.regionOk.disabled = true; };
+    ui.regionReset.onclick = () => { a = b = null;
+      ui.regionBox.classList.remove('on'); ui.regionOk.disabled = true;
+      ui.regionSay.textContent = 'Drag a box across the preview to pick what gets recorded.'; };
+    ui.regionCancel.onclick = () => finish({ abort:true });
   });
 }
 
@@ -1128,7 +1176,7 @@ async function begin(){
   if (!MIME) return say('This browser cannot record video. Try Chrome, Edge, Firefox or Safari.', 'bad');
   const fps = parseInt(ui.fps.value,10);
   const wantScreen = opt.mode !== 'cam', wantCam = opt.mode === 'both' || opt.mode === 'cam';
-  running = true; crop = null;
+  running = true; crop = null; gotFrame = false;
 
   try {
     if (wantScreen){
@@ -1169,9 +1217,11 @@ async function begin(){
   /* region picking happens after the preview is live but before the recorder starts,
      so the canvas resize never lands mid-take */
   if (opt.pickArea && opt.mode !== 'cam'){
-    await new Promise(r => setTimeout(r, 350));   // let the first frames land
-    crop = await pickRegion();
+    await waitFrame(4000);
+    const sel = await pickRegion();
     if (!running) return cleanup();
+    if (sel && sel.abort){ say('Recording cancelled.'); return cleanup(); }
+    crop = sel;
     if (crop) say(`Recording a ${Math.round(crop.w*100)}% × ${Math.round(crop.h*100)}% region.`);
   }
   ui.hud.classList.add('on');
@@ -1264,7 +1314,7 @@ function releaseDevices(){
 function cleanup(){
   stopClock(); stopMeter(); releaseDevices(); recorder = null; running = false;
   setState('idle'); lockControls(false);
-  ui.region.classList.remove('on');
+  ui.region.classList.remove('on'); ui.regionBox.classList.remove('on');
   ui.stageCanvas.classList.remove('on'); ui.hud.classList.remove('on'); ui.slate.style.display='';
   ui.start.disabled = false; ui.pause.disabled = true; ui.stop.disabled = true;
 }
@@ -1779,7 +1829,7 @@ function helpSheet(){
         <li><b>Screen</b> — a whole display, one window, or a single browser tab.</li>
         <li><b>Screen + cam</b> — the same, with your face in a bubble burned into the video.</li>
         <li><b>Camera</b> — just you. This is the mode that works on phones and tablets, where browsers don't allow screen capture at all.</li>
-        <li><b>Pick area</b> — after sharing, drag a box on the preview and only that region is recorded.</li>
+        <li><b>Pick area</b> — after you share a screen, drag a box on the live preview and only that region is recorded. Escape or Cancel backs out.</li>
       </ul>
       <h4>${ico('move')}2 · Place the camera bubble</h4>
       <ul>
