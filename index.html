@@ -296,28 +296,17 @@ kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--
 .frame{position:relative;width:100%;aspect-ratio:16/9;background:#0C0F1A;border:1px solid var(--line);
   border-radius:var(--r);overflow:hidden;margin-bottom:16px}
 .frame iframe{width:100%;height:100%;border:0}
-.frame video{width:100%;height:100%;object-fit:contain;background:#0C0F1A;display:block}
-.frame .wait{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:12px;color:var(--mist);font-size:13px;text-align:center;padding:24px}
-.frame .spin{width:26px;height:26px;border:2px solid var(--line);border-top-color:var(--armed);
-  border-radius:50%;animation:spin .9s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.procnote{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);
-  border-left:3px solid var(--warn);border-radius:var(--r);padding:12px 14px;font-size:12.5px;
-  color:var(--mist);line-height:1.6;margin-bottom:16px;animation:rise .35s var(--ease)}
-.procnote b{color:var(--paper);font-weight:600}
-/* Drive's preview has a pop-out button top-right. The iframe is cross-origin so it
-   can't be styled — masking that corner is the only available method. */
-.nopop{position:absolute;top:0;right:0;width:74px;height:52px;background:#0C0F1A;z-index:2;border-bottom-left-radius:8px}
+.playnote{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;
+  color:var(--mist);line-height:1.6;margin-bottom:18px}
 .vmeta{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:22px}
 .dead{text-align:center;padding:48px 20px;animation:rise .45s var(--ease)}
 .dead h2{font-size:22px;margin-bottom:8px;letter-spacing:-.02em}
 .dead p{color:var(--mist);font-size:13.5px;line-height:1.6;max-width:420px;margin:0 auto 18px}
 .pitch{border-top:1px solid var(--line);padding-top:20px;font-size:13px;color:var(--mist);line-height:1.6}
 
-@media (max-width:760px){
+@media (max-width:900px), (orientation:portrait) and (max-width:1180px){
   .stage{min-height:auto;padding-bottom:8px}
-  .finder{aspect-ratio:auto;height:calc(100dvh - 260px);min-height:250px;max-height:none}
+  .finder{aspect-ratio:auto;height:calc(100dvh - 268px);min-height:240px;max-height:none}
 }
 @media (max-width:560px){
   .acts .btn{flex:1 1 calc(50% - 5px)}
@@ -622,15 +611,21 @@ const dec64 = s => { try { return decodeURIComponent(escape(atob(s.replace(/-/g,
 function openSheet(html, onMount, cls){
   const veil = document.createElement('div');
   veil.className = 'veil';
-  veil.innerHTML = `<div class="sheet ${cls||''}" role="dialog" aria-modal="true">${html}</div>`;
+  veil.innerHTML = `<div class="sheet ${cls||''}" role="dialog" aria-modal="true" tabindex="-1">${html}</div>`;
   document.body.appendChild(veil);
   const close = () => { veil.classList.add('out'); setTimeout(() => veil.remove(), 200);
     document.removeEventListener('keydown', onKey); };
   const onKey = e => { if (e.key === 'Escape') close(); };
   veil.addEventListener('click', e => { if (e.target === veil) close(); });
   document.addEventListener('keydown', onKey);
-  onMount && onMount(veil.firstChild, close);
-  const f = veil.querySelector('button,input,select'); f && f.focus();
+  const sheet = veil.firstChild;
+  onMount && onMount(sheet, close);
+  /* focusing the first control would scroll a long sheet to its last button,
+     so focus the dialog itself unless something opts in */
+  sheet.scrollTop = 0;
+  const want = veil.querySelector('[data-autofocus]');
+  (want || sheet).focus({ preventScroll: true });
+  sheet.scrollTop = 0;
   return close;
 }
 function confirmSheet({ title, msg, ok='Delete', danger=true }){
@@ -667,26 +662,23 @@ function routeViewer(){
     return true;
   }
 
-  /* Drive has to transcode before its own player will stream a file, which can take
-     minutes. The raw bytes are servable straight away, so try a plain <video> first
-     and only fall back to Drive's embed if that fails. */
-  const DIRECT = `https://drive.usercontent.google.com/download?id=${id}&export=download`;
-  const EMBED  = `https://drive.google.com/file/d/${id}/preview`;
-  const DL     = `https://drive.google.com/uc?export=download&id=${id}`;
+  const EMBED = `https://drive.google.com/file/d/${id}/preview`;
+  const DL    = `https://drive.google.com/uc?export=download&id=${id}`;
 
   box.innerHTML = `
     ${name ? `<h1 class="vtitle">${esc(name)}</h1>` : ''}
     <div class="frame" id="vFrame">
-      <video id="vNative" controls playsinline preload="metadata" src="${DIRECT}"></video>
-      <div class="wait" id="vWait"><div class="spin"></div><span>Loading the video…</span></div>
+      <iframe src="${EMBED}" allow="autoplay; fullscreen" allowfullscreen
+              title="Shared screen recording"></iframe>
     </div>
-    <div class="procnote" id="vNote" hidden>${ico('warn')}<span><b>Google Drive is still processing this video.</b>
-      Drive transcodes uploads before it will play them, which can take a few minutes for longer
-      recordings. <b>Download works right now</b> — or wait a moment and reload.
-      <button class="mini" id="vRetry" style="margin-top:8px">${ico('undo','sm')}Try the player again</button></span></div>
+    <p class="playnote">Not playing yet? Google Drive processes each upload before it will stream,
+      which takes a few minutes for longer recordings — downloading works straight away.
+      <button class="mini" id="vReload">${ico('undo','sm')}Reload player</button></p>
     <div class="vmeta">
       <a class="btn go" href="${DL}" style="text-decoration:none">${ico('dl')} Download video</a>
       <button class="btn" id="vCopy">${ico('copy')} Copy link</button>
+      <a class="btn" href="https://drive.google.com/file/d/${id}/view" target="_blank"
+         rel="noopener" style="text-decoration:none">${ico('play')} Open in Drive</a>
       ${expMs ? `<span class="chip">${ico('clock','sm')}${fmtLeft(left)}</span>
                  <span class="chip">deletes ${new Date(expMs).toLocaleString()}</span>`
               : `<span class="chip">no expiry set</span>`}
@@ -694,39 +686,13 @@ function routeViewer(){
     <div class="pitch">Recorded with <a href="${siteUrl()}">${APP_NAME}</a> — a screen recorder that runs
       entirely in your browser. No watermark, no time limit, no account.</div>`;
 
-  /* progressive fallback: raw file → Drive embed → honest explanation */
-  let settled = false, timer = 0;
-  const showEmbed = () => {
-    if (settled) return; settled = true; clearTimeout(timer);
-    $('vFrame').innerHTML =
-      `<iframe src="${EMBED}" allow="autoplay; fullscreen" allowfullscreen
-               title="Shared screen recording"></iframe><div class="nopop" aria-hidden="true"></div>`;
-    $('vNote').hidden = false;
+  /* The page cannot see inside a cross-origin iframe, so it can never know whether
+     Drive is playing. Reload the frame on demand rather than guessing and warning. */
+  $('vReload').onclick = () => {
+    $('vFrame').innerHTML = `<iframe src="${EMBED}&t=${Date.now()}" allow="autoplay; fullscreen"
+      allowfullscreen title="Shared screen recording"></iframe>`;
+    say('Reloading the player…');
   };
-  const showNative = () => {
-    settled = true; clearTimeout(timer);
-    const w = $('vWait'); if (w) w.remove();
-    $('vNote').hidden = true;
-  };
-  const wireNative = () => {
-    const v = $('vNative');
-    if (!v) return showEmbed();
-    v.addEventListener('loadeddata', showNative, { once:true });
-    v.addEventListener('error', showEmbed, { once:true });
-    timer = setTimeout(() => { if (!settled && v.readyState < 2) showEmbed(); }, 8000);
-  };
-  wireNative();
-
-  document.addEventListener('click', e => {
-    const r = e.target.closest('#vRetry');
-    if (!r) return;
-    settled = false;
-    $('vNote').hidden = true;
-    $('vFrame').innerHTML =
-      `<video id="vNative" controls playsinline preload="metadata" src="${DIRECT}"></video>
-       <div class="wait" id="vWait"><div class="spin"></div><span>Checking again…</span></div>`;
-    wireNative();
-  });
 
   $('vCopy').onclick = async () => {
     const text = `${name || 'Screen recording'}${expMs ? ' (' + fmtLeft(left).replace(' left','') + ' left)' : ''}\n${location.href}\n\nRecorded with ${APP_NAME} — ${siteUrl()}`;
@@ -1501,8 +1467,11 @@ ui.trimApply.onclick = async () => {
 document.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
-  if (e.key === '?' || (e.key === '/' && e.shiftKey)){ e.preventDefault(); return helpSheet(); }
-  if (document.querySelector('.veil') || document.querySelector('.tourcard')) return;
+  const openDialog = document.querySelector('.veil') || document.querySelector('.tourcard');
+  if (!openDialog && (e.key === '?' || ((e.key === '/' || e.code === 'Slash') && e.shiftKey))){
+    e.preventDefault(); return helpSheet();
+  }
+  if (openDialog) return;
   const k = e.key.toLowerCase();
   if (k === 'r'){ e.preventDefault(); running ? end() : begin(); }
   else if (k === 'p' && recorder){ e.preventDefault(); togglePause(); }
@@ -1742,7 +1711,7 @@ function shareSheet(){
     <p>The video uploads to your own Google Drive, into a folder called ${APP_FOLDER}, and the link is set to view-only. Nobody needs an account to watch it.</p>
     ${acctRow()}
     <div class="field"><label class="lbl" for="shName">Name</label>
-      <input type="text" id="shName" style="width:100%" value="Screen recording ${new Date().toLocaleDateString()}"></div>
+      <input type="text" id="shName" data-autofocus style="width:100%" value="Screen recording ${new Date().toLocaleDateString()}"></div>
     <div class="field"><label class="lbl" for="shExp">Delete it from my Drive after</label>
       <select id="shExp" style="width:100%"><option value="1">1 day</option>
         <option value="7" selected>7 days</option><option value="30">30 days</option>
