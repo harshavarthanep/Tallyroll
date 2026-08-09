@@ -119,25 +119,29 @@ body[data-state="done"] .hud{top:0;bottom:auto;justify-content:flex-end;
 .vu i.hot{background:var(--warn)}
 
 /* region picker */
-.region{position:absolute;inset:0;z-index:45;display:none;background:rgba(8,10,18,.58)}
-.region.on{display:block}
-/* sized in JS to the exact letterboxed video rect, so selection is a plain
-   percentage of this element — no aspect-ratio maths at pointer time */
-.rgnstage{position:absolute;cursor:crosshair;touch-action:none;
-  outline:1px dashed rgba(125,211,252,.4);outline-offset:-1px}
-.region .box{position:absolute;border:2px solid var(--armed);background:rgba(125,211,252,.16);
-  border-radius:2px;display:none;box-shadow:0 0 0 1px rgba(8,10,18,.6)}
-.region .box.on{display:block}
-.region .box::after{content:attr(data-size);position:absolute;left:5px;top:5px;
+/* The picker is a viewport-fixed overlay deliberately NOT nested in .finder.
+   .finder is position:relative with z-index:auto, so it creates no stacking
+   context — anything inside it competes globally with the sticky action bar
+   and loses. Fixed positioning sidesteps stacking and overflow entirely. */
+.picker{position:fixed;inset:0;z-index:60;background:rgba(8,10,18,.6);animation:fade .2s var(--ease)}
+.pkstage{position:fixed;cursor:crosshair;touch-action:none;
+  outline:1px dashed rgba(125,211,252,.55);outline-offset:-1px}
+.pkbox{position:absolute;border:2px solid var(--armed);background:rgba(125,211,252,.16);
+  border-radius:2px;display:none;box-shadow:0 0 0 1px rgba(8,10,18,.7)}
+.pkbox.on{display:block}
+.pkbox::after{content:attr(data-size);position:absolute;left:5px;top:5px;
   font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--armed);white-space:nowrap;
-  background:rgba(8,10,18,.75);padding:2px 6px;border-radius:3px}
-/* the toolbar lives at the TOP: the bottom of the preview is where the sticky
-   action bar overlaps, and nothing competes for the top edge */
-.region .bar{position:absolute;left:0;right:0;top:0;display:flex;gap:8px;align-items:center;
-  padding:11px 12px;flex-wrap:wrap;z-index:3;pointer-events:none;
-  background:rgba(12,15,26,.95);border-bottom:1px solid var(--line)}
-.region .bar .btn{pointer-events:auto;padding:9px 13px;min-height:40px;font-size:12.5px}
-.region .say{flex:1 1 190px;min-width:0;font-size:12.5px;color:var(--paper);line-height:1.4}
+  background:rgba(8,10,18,.8);padding:2px 6px;border-radius:3px}
+.pkbar{position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(20px + env(safe-area-inset-bottom));z-index:61;
+  display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;
+  padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 20px 56px rgba(0,0,0,.65);max-width:min(780px,calc(100vw - 20px));
+  animation:sheetin .3s var(--ease)}
+.pkbar .say{flex:1 1 100%;text-align:center;font-size:12.5px;color:var(--paper);
+  line-height:1.4;margin-bottom:2px}
+.pkbar .btn{padding:10px 14px;min-height:42px;font-size:12.5px}
+body.picking{overflow:hidden}
 
 /* ═══ trim ═══ */
 .trim{max-width:1320px;margin:0 auto;width:100%;padding:0 var(--pad) var(--pad);animation:rise .35s var(--ease)}
@@ -171,6 +175,7 @@ body[data-state="done"] .hud{top:0;bottom:auto;justify-content:flex-end;
 /* ═══ deck ═══ */
 .deck{border-top:1px solid var(--line);background:var(--panel);padding-bottom:78px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;background:var(--line)}
+@media (min-width:1080px){ .cell[data-tour="capture"]{grid-column:span 2} }
 .cell{background:var(--panel);padding:15px var(--pad);min-width:0;transition:opacity .25s var(--ease)}
 .cell.locked{opacity:.4}
 .lbl{display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono',monospace;font-size:10px;
@@ -384,6 +389,8 @@ kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--
   </div>
   <span class="chip" id="fmtChip">webm</span>
   <span class="tc" id="tc" role="timer">00:00:00</span>
+  <button class="iconbtn" id="installBtn" title="Install Tallyroll" aria-label="Install Tallyroll">
+    <svg class="i"><use href="#i-install"/></svg></button>
   <button class="iconbtn" id="helpBtn" title="Help and instructions" aria-label="Help and instructions">
     <svg class="i"><use href="#i-help"/></svg></button>
 </header>
@@ -409,17 +416,6 @@ kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--
       <button class="hbtn" id="hGrab" title="Save the current frame as a PNG">
         <svg class="i sm"><use href="#i-image"/></svg><span>Grab still</span></button>
       <span class="hint-pill" id="dragtip" hidden>Drag the bubble anywhere</span>
-    </div>
-
-    <div class="region" id="region">
-      <div class="bar">
-        <span class="say" id="regionSay">Drag a box across the preview to pick what gets recorded.</span>
-        <button class="btn go" id="regionOk" disabled><svg class="i"><use href="#i-crop"/></svg>Record this area</button>
-        <button class="btn" id="regionAll">Use everything</button>
-        <button class="btn" id="regionReset">Redraw</button>
-        <button class="btn danger" id="regionCancel"><svg class="i"><use href="#i-close"/></svg>Cancel</button>
-      </div>
-      <div class="rgnstage" id="rgnStage"><div class="box" id="regionBox" data-size=""></div></div>
     </div>
 
     <div class="count" id="count"><b id="countN">3</b></div>
@@ -568,6 +564,17 @@ kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--
     <a class="chip" href="#" id="vHome">Make your own <svg class="i sm"><use href="#i-share"/></svg></a>
   </header>
   <main class="viewer" id="vBody"></main>
+</div>
+
+<div class="picker" id="picker" hidden>
+  <div class="pkstage" id="pkStage"><div class="pkbox" id="pkBox" data-size=""></div></div>
+  <div class="pkbar">
+    <span class="say" id="pkSay">Drag a box over the preview to choose exactly what gets recorded.</span>
+    <button class="btn go" id="pkOk" disabled><svg class="i"><use href="#i-crop"/></svg>Record this area</button>
+    <button class="btn" id="pkAll">Use everything</button>
+    <button class="btn" id="pkReset">Redraw</button>
+    <button class="btn danger" id="pkCancel"><svg class="i"><use href="#i-close"/></svg>Cancel</button>
+  </div>
 </div>
 
 <div class="toasts" id="toasts"></div>
@@ -720,7 +727,7 @@ const ui = {};
  'hMic','hCam','hGrab','start','pause','stop','save','share','shareLbl','again','trimBtn',
  'quality','fps','maxLen','camSize','camShape','camMirror','micPick','camPick',
  'fmtChip','sizeTip','modeTip','lib','libList','libAcct','cellBubble','diskNote',
- 'region','rgnStage','regionBox','regionOk','regionAll','regionReset','regionCancel','regionSay',
+ 'picker','pkStage','pkBox','pkOk','pkAll','pkReset','pkCancel','pkSay','installBtn',
  'trimPanel','trimTrack','trimSel','trimHead','trimA','trimB','trimRange','trimLen',
  'trimPlay','trimApply','trimRevert','trimClose','trimNote','trimProg','trimBar']
  .forEach(k => ui[k] = $(k));
@@ -981,24 +988,22 @@ ui.stageCanvas.addEventListener('pointermove', e => {
   dragging = false; ui.stageCanvas.classList.remove('dragging'); }));
 
 /* ── region picker ─────────────────────── */
-/* The overlay stage is positioned onto the real video rect first, so a selection
-   is just a fraction of that element. No letterbox maths while dragging, and
-   nothing depends on the canvas having been sized yet. */
-function videoRect(){
+/* Viewport coordinates, because the overlay is position:fixed. */
+function videoRectVP(){
   const r = ui.finder.getBoundingClientRect();
   const cw = ui.stageCanvas.width || 16, ch = ui.stageCanvas.height || 9;
   const ar = cw / ch;
   let w = r.width, h = r.width / ar;
   if (h > r.height){ h = r.height; w = r.height * ar; }
-  return { left:(r.width-w)/2, top:(r.height-h)/2, w, h };
+  return { left:r.left + (r.width-w)/2, top:r.top + (r.height-h)/2, w, h };
 }
-function layoutRgn(){
-  const v = videoRect();
-  Object.assign(ui.rgnStage.style,
+function layoutPk(){
+  const v = videoRectVP();
+  Object.assign(ui.pkStage.style,
     { left:v.left+'px', top:v.top+'px', width:v.w+'px', height:v.h+'px' });
 }
-/* don't open the picker until a real frame has arrived, or the aspect ratio
-   would still be the canvas default and every coordinate would be wrong */
+/* Don't open until a real frame exists, or the aspect ratio is still the
+   canvas default and every coordinate maps to the wrong place. */
 let gotFrame = false;
 function waitFrame(ms){
   const started = Date.now();
@@ -1011,16 +1016,17 @@ let abortPicker = null;
 function pickRegion(){
   return new Promise(resolve => {
     let a = null, b = null, drawing = false;
-    layoutRgn();
+    window.scrollTo(0, 0);              // put the preview in a known place, then freeze
+    ui.picker.hidden = false;
     body.classList.add('picking');
-    ui.region.classList.add('on');
-    ui.regionBox.classList.remove('on');
-    ui.regionOk.disabled = true;
-    ui.regionSay.textContent = 'Drag a box across the preview to pick what gets recorded.';
-    window.addEventListener('resize', layoutRgn);
+    layoutPk();
+    ui.pkBox.classList.remove('on');
+    ui.pkOk.disabled = true;
+    ui.pkSay.textContent = 'Drag a box over the preview to choose exactly what gets recorded.';
+    window.addEventListener('resize', layoutPk);
 
     const pt = e => {
-      const r = ui.rgnStage.getBoundingClientRect();
+      const r = ui.pkStage.getBoundingClientRect();
       return { x: Math.min(1, Math.max(0, (e.clientX-r.left)/r.width)),
                y: Math.min(1, Math.max(0, (e.clientY-r.top)/r.height)) };
     };
@@ -1028,57 +1034,57 @@ function pickRegion(){
       if (!a || !b) return;
       const x1=Math.min(a.x,b.x), y1=Math.min(a.y,b.y);
       const x2=Math.max(a.x,b.x), y2=Math.max(a.y,b.y);
-      const W = ui.rgnStage.clientWidth, H = ui.rgnStage.clientHeight;
-      Object.assign(ui.regionBox.style, {
-        left:(x1*W)+'px', top:(y1*H)+'px',
+      const W = ui.pkStage.clientWidth, H = ui.pkStage.clientHeight;
+      Object.assign(ui.pkBox.style, { left:(x1*W)+'px', top:(y1*H)+'px',
         width:((x2-x1)*W)+'px', height:((y2-y1)*H)+'px' });
-      ui.regionBox.dataset.size =
-        Math.round((x2-x1)*ui.stageCanvas.width) + ' × ' +
-        Math.round((y2-y1)*ui.stageCanvas.height) + ' px';
-      ui.regionBox.classList.add('on');
-      ui.regionOk.disabled = (x2-x1) < .03 || (y2-y1) < .03;
+      ui.pkBox.dataset.size = Math.round((x2-x1)*ui.stageCanvas.width) + ' × ' +
+                              Math.round((y2-y1)*ui.stageCanvas.height) + ' px';
+      ui.pkBox.classList.add('on');
+      const ok = (x2-x1) >= .03 && (y2-y1) >= .03;
+      ui.pkOk.disabled = !ok;
+      ui.pkSay.textContent = ok
+        ? 'Looks good — press Record this area, or drag again to redo it.'
+        : 'Keep dragging: that box is still too small.';
     };
     const down = e => {
-      if (e.target.closest('.bar')) return;      // let the buttons be buttons
+      if (e.target.closest('.pkbar')) return;
       drawing = true; a = pt(e); b = a;
-      try { ui.region.setPointerCapture(e.pointerId); } catch {}
+      try { ui.picker.setPointerCapture(e.pointerId); } catch {}
       paint(); e.preventDefault();
     };
     const move = e => { if (drawing){ b = pt(e); paint(); } };
-    const up = () => { drawing = false;
-      if (a && b && (Math.abs(b.x-a.x) < .03 || Math.abs(b.y-a.y) < .03))
-        ui.regionSay.textContent = 'That box is too small — drag a larger area.'; };
-    ui.region.addEventListener('pointerdown', down);
-    ui.region.addEventListener('pointermove', move);
-    ui.region.addEventListener('pointerup', up);
-    ui.region.addEventListener('pointercancel', up);
+    const up = () => { drawing = false; };
+    ui.picker.addEventListener('pointerdown', down);
+    ui.picker.addEventListener('pointermove', move);
+    ui.picker.addEventListener('pointerup', up);
+    ui.picker.addEventListener('pointercancel', up);
     const onKey = e => { if (e.key === 'Escape'){ e.preventDefault(); finish({ abort:true }); } };
     document.addEventListener('keydown', onKey);
 
     abortPicker = () => finish({ abort:true });
     function finish(val){
       abortPicker = null;
-      body.classList.remove('picking');
-      ui.region.removeEventListener('pointerdown', down);
-      ui.region.removeEventListener('pointermove', move);
-      ui.region.removeEventListener('pointerup', up);
-      ui.region.removeEventListener('pointercancel', up);
+      ui.picker.removeEventListener('pointerdown', down);
+      ui.picker.removeEventListener('pointermove', move);
+      ui.picker.removeEventListener('pointerup', up);
+      ui.picker.removeEventListener('pointercancel', up);
       document.removeEventListener('keydown', onKey);
-      window.removeEventListener('resize', layoutRgn);
-      ui.region.classList.remove('on');
-      ui.regionBox.classList.remove('on');
+      window.removeEventListener('resize', layoutPk);
+      body.classList.remove('picking');
+      ui.picker.hidden = true;
+      ui.pkBox.classList.remove('on');
       resolve(val);
     }
-    ui.regionOk.onclick = () => {
+    ui.pkOk.onclick = () => {
       if (!a || !b) return finish(null);
       finish({ x:Math.min(a.x,b.x), y:Math.min(a.y,b.y),
                w:Math.abs(b.x-a.x), h:Math.abs(b.y-a.y) });
     };
-    ui.regionAll.onclick = () => finish(null);
-    ui.regionReset.onclick = () => { a = b = null;
-      ui.regionBox.classList.remove('on'); ui.regionOk.disabled = true;
-      ui.regionSay.textContent = 'Drag a box across the preview to pick what gets recorded.'; };
-    ui.regionCancel.onclick = () => finish({ abort:true });
+    ui.pkAll.onclick = () => finish(null);
+    ui.pkReset.onclick = () => { a = b = null; ui.pkBox.classList.remove('on');
+      ui.pkOk.disabled = true;
+      ui.pkSay.textContent = 'Drag a box over the preview to choose exactly what gets recorded.'; };
+    ui.pkCancel.onclick = () => finish({ abort:true });
   });
 }
 
@@ -1178,7 +1184,7 @@ const stopClock = () => { if (clock) clearInterval(clock); clock = null; };
 
 /* ── run ───────────────────────────────── */
 async function begin(){
-  if (running) return;
+  if (running){ say('Already busy — press Stop or Cancel first.'); return; }
   if (!MIME) return say('This browser cannot record video. Try Chrome, Edge, Firefox or Safari.', 'bad');
   const fps = parseInt(ui.fps.value,10);
   const wantScreen = opt.mode !== 'cam', wantCam = opt.mode === 'both' || opt.mode === 'cam';
@@ -1323,7 +1329,7 @@ function cleanup(){
   body.classList.remove('picking');
   stopClock(); stopMeter(); releaseDevices(); recorder = null; running = false;
   setState('idle'); lockControls(false);
-  ui.region.classList.remove('on'); ui.regionBox.classList.remove('on');
+  ui.picker.hidden = true; ui.pkBox.classList.remove('on');
   ui.stageCanvas.classList.remove('on'); ui.hud.classList.remove('on'); ui.slate.style.display='';
   ui.start.disabled = false; ui.pause.disabled = true; ui.stop.disabled = true;
 }
@@ -1838,7 +1844,7 @@ function helpSheet(){
         <li><b>Screen</b> — a whole display, one window, or a single browser tab.</li>
         <li><b>Screen + cam</b> — the same, with your face in a bubble burned into the video.</li>
         <li><b>Camera</b> — just you. This is the mode that works on phones and tablets, where browsers don't allow screen capture at all.</li>
-        <li><b>Pick area</b> — after you share a screen, drag a box on the live preview and only that region is recorded. Escape or Cancel backs out.</li>
+        <li><b>Pick area</b> — after you share a screen, drag a box over the live preview and only that region is recorded. The toolbar sits at the bottom of the screen; Escape or Cancel backs out completely.</li>
       </ul>
       <h4>${ico('move')}2 · Place the camera bubble</h4>
       <ul>
@@ -1961,32 +1967,56 @@ function endTour(){
   setTimeout(maybeInstall, 500);
 }
 
-/* ═══════════ INSTALL ═══════════ */
+/* ═══════════ INSTALL ═══════════
+   beforeinstallprompt only fires on Chromium, only when the browser's own
+   heuristics are satisfied, and never once installed. Relying on it alone
+   meant the modal silently did nothing in most browsers, so every browser
+   gets a route — a real prompt where possible, instructions otherwise. */
 let deferredPrompt = null, installShown = false;
 const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; maybeInstall(); });
-window.addEventListener('appinstalled', () => { deferredPrompt = null; say('Installed. Open ' + APP_NAME + ' from your apps any time.', 'good'); });
-
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-function maybeInstall(){
-  if (installShown || standalone() || running || trimming) return;
-  if (!localStorage.getItem(TOUR_KEY)) return;      // let the tour finish first
-  if (!deferredPrompt && !isIOS()) return;          // nothing useful to offer
-  installShown = true;                              // once per page load — returns on refresh
+
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; maybeInstall(); });
+window.addEventListener('appinstalled', () => {
+  deferredPrompt = null; ui.installBtn.hidden = true;
+  say('Installed. Open ' + APP_NAME + ' from your apps any time.', 'good');
+});
+if (standalone()) ui.installBtn.hidden = true;
+
+function installHow(){
+  const ua = navigator.userAgent;
+  if (isIOS())            return 'In Safari, tap <b>Share</b>, then <b>Add to Home Screen</b>.';
+  if (/Edg\//.test(ua))   return 'Open the <b>⋯</b> menu → <b>Apps</b> → <b>Install this site as an app</b>.';
+  if (/OPR\//.test(ua))   return 'Open the Opera menu and choose <b>Install</b>.';
+  if (/Firefox\//.test(ua)) return 'Firefox on desktop can’t install web apps yet. Chrome, Edge or Safari can — everything still works here in the tab.';
+  if (/Chrome\//.test(ua)) return 'Open the <b>⋮</b> menu → <b>Cast, save and share</b> → <b>Install page as app</b>.';
+  if (/Safari\//.test(ua)) return 'In Safari 17 or newer, choose <b>File</b> → <b>Add to Dock</b>.';
+  return 'Look for <b>Install</b> or <b>Add to Home Screen</b> in your browser menu.';
+}
+function showInstall(manual){
+  if (standalone()){
+    if (manual) say('You are already running the installed app.', 'good');
+    return;
+  }
+  if (!manual){
+    if (installShown || running || trimming) return;
+    let toured = true; try { toured = !!localStorage.getItem(TOUR_KEY); } catch {}
+    if (!toured) return;                 // let the tour finish first
+    installShown = true;                 // once per page load, so it returns on refresh
+  }
   const art = `<div class="installart">
       <div class="ring"></div><div class="ring"></div><div class="ring"></div>
       <svg viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#161A29" stroke="#2A3149"/>
         <circle cx="32" cy="32" r="19" fill="none" stroke="#7DD3FC" stroke-width="2.5" opacity=".55"/>
         <circle cx="32" cy="32" r="9.5" fill="#FF3B30"/></svg>
-      <svg class="i arrow" style="width:20px;height:20px"><use href="#i-down"/></svg>
-    </div>`;
-  const ios = `<p>Tap the <b>Share</b> button in Safari, then choose <b>Add to Home Screen</b>. ${APP_NAME} will open full-screen like an app.</p>`;
+      <svg class="i arrow" style="width:20px;height:20px"><use href="#i-down"/></svg></div>`;
   openSheet(`<div class="installcard">${art}
       <h3 style="justify-content:center">Install ${APP_NAME}</h3>
-      <p style="text-align:center">Opens in one tap, runs full-screen, and works offline. It's the same app — just without the browser around it.</p>
-      ${isIOS() ? ios : ''}
+      <p style="text-align:center">Opens in one tap, runs full-screen and works offline.
+         Same app — just without the browser around it.</p>
+      ${deferredPrompt ? '' : `<p style="text-align:center;font-size:12.5px">${installHow()}</p>`}
       <div class="wrap" style="justify-content:center;margin-top:6px">
-        <button class="btn" data-close>Not now</button>
+        <button class="btn" data-close>${deferredPrompt ? 'Not now' : 'Close'}</button>
         ${deferredPrompt ? `<button class="btn go" id="doInstall">${ico('install')}Install</button>` : ''}
       </div></div>`,
   (sheet, close) => {
@@ -1994,13 +2024,17 @@ function maybeInstall(){
     const go = sheet.querySelector('#doInstall');
     if (go) go.onclick = async () => {
       close();
-      try { deferredPrompt.prompt(); const c = await deferredPrompt.userChoice;
-        if (c.outcome !== 'accepted') say('No problem — you can install later from the browser menu.');
+      try {
+        deferredPrompt.prompt();
+        const c = await deferredPrompt.userChoice;
+        if (c.outcome !== 'accepted') say('No problem — the install button stays in the header.');
         deferredPrompt = null;
-      } catch { say('Install could not start. Use the browser menu → Install.', 'bad'); }
+      } catch { say('Install could not start. Use your browser menu instead.', 'bad'); }
     };
   }, 'installcard');
 }
+const maybeInstall = () => showInstall(false);
+ui.installBtn.onclick = () => showInstall(true);
 
 /* ── boot ──────────────────────────────── */
 renderLib();
