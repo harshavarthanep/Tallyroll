@@ -175,12 +175,17 @@ body.picking{overflow:hidden}
 /* ═══ deck ═══ */
 .deck{border-top:1px solid var(--line);background:var(--panel);padding-bottom:78px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;background:var(--line)}
-@media (min-width:1080px){ .cell[data-tour="capture"]{grid-column:span 2} }
+/* @media (min-width:1080px){ .cell[data-tour="capture"]{grid-column:span 2} } */
 .cell{background:var(--panel);padding:15px var(--pad);min-width:0;transition:opacity .25s var(--ease)}
 .cell.locked{opacity:.4}
 .lbl{display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono',monospace;font-size:10px;
   letter-spacing:.16em;text-transform:uppercase;color:var(--mist);margin-bottom:10px}
-.wrap{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+/* .wrap{display:flex;gap:8px;flex-wrap:wrap;align-items:center} */
+  .wrap{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.wrap+.wrap{margin-top:10px}
+.sub{display:block;font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--mist);opacity:.72;margin:14px 0 8px}
+.sub:first-of-type{margin-top:12px}
 .seg{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;max-width:100%}
 .seg button{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;min-height:38px;
   font-size:12.5px;font-weight:500;color:var(--mist);white-space:nowrap;transition:.16s var(--ease)}
@@ -457,13 +462,22 @@ kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--
           <button id="mBoth" aria-pressed="false"><svg class="i sm"><use href="#i-both"/></svg>Screen + cam</button>
           <button id="mCam" aria-pressed="false"><svg class="i sm"><use href="#i-cam"/></svg>Camera</button>
         </div>
+        <!-- <div class="seg" role="group" aria-label="Recorded area">
+          <button id="aFull" aria-pressed="true">Full area</button>
+          <button id="aPick" aria-pressed="false"><svg class="i sm"><use href="#i-crop"/></svg>Pick area</button>
+        </div>
+      </div>
+      <p class="tip" id="modeTip">Shares a screen, window or single tab.</p>
+    </div> -->
+        </div>
+      <span class="sub">Recorded area</span>
+      <div class="wrap">
         <div class="seg" role="group" aria-label="Recorded area">
           <button id="aFull" aria-pressed="true">Full area</button>
           <button id="aPick" aria-pressed="false"><svg class="i sm"><use href="#i-crop"/></svg>Pick area</button>
         </div>
       </div>
       <p class="tip" id="modeTip">Shares a screen, window or single tab.</p>
-    </div>
 
     <div class="cell" id="cellBubble" data-tour="bubble">
       <span class="lbl" id="lblBub"><svg class="i sm"><use href="#i-move"/></svg>Camera bubble</span>
@@ -472,6 +486,9 @@ kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--
           <button id="pAuto" aria-pressed="true"><svg class="i sm"><use href="#i-magic"/></svg>Auto-dodge</button>
           <button id="pFree" aria-pressed="false"><svg class="i sm"><use href="#i-move"/></svg>Place it myself</button>
         </div>
+        </div>
+      <span class="sub">Size, shape, mirror</span>
+      <div class="wrap">
         <select id="camSize" aria-label="Bubble size">
           <option value="0.16">Small</option><option value="0.22" selected>Medium</option><option value="0.30">Large</option></select>
         <select id="camShape" aria-label="Bubble shape">
@@ -492,7 +509,9 @@ kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--
           <button id="sysOn" aria-pressed="true">System on</button>
           <button id="sysOff" aria-pressed="false">System off</button></div>
       </div>
-      <div class="wrap" style="margin-top:8px">
+      <!-- <div class="wrap" style="margin-top:8px"> -->
+      <span class="sub">Devices</span>
+      <div class="wrap">
         <select id="micPick" aria-label="Microphone"><option value="">Default microphone</option></select>
         <select id="camPick" aria-label="Camera"><option value="">Default camera</option></select>
       </div>
