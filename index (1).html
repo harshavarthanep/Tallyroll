@@ -1,0 +1,1920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tallyroll — screen recorder with no watermark and no time limit</title>
+<meta name="description" content="Record your screen and camera in the browser. No watermark, no time limit, no account. Trim it, then share a link that expires when you say.">
+<meta name="theme-color" content="#10131F">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%2310131F'/%3E%3Ccircle cx='32' cy='32' r='19' fill='none' stroke='%237DD3FC' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='10' fill='%23FF3B30'/%3E%3C/svg%3E">
+<link rel="alternate icon" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#10131F; --panel:#161A29; --raise:#1E2436; --hi:#252C42;
+  --line:#2A3149; --mist:#8C95B2; --paper:#E9EDF7;
+  --armed:#7DD3FC; --tally:#FF3B30; --ok:#86EFAC; --warn:#FBBF24;
+  --r:6px; --pad:clamp(14px,3.2vw,26px);
+  --ease:cubic-bezier(.22,.9,.28,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--ink);color:var(--paper);
+  font-family:'Archivo',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;
+  min-height:100dvh;display:flex;flex-direction:column;overflow-x:hidden}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--armed);outline-offset:2px}
+a{color:var(--armed)}
+[hidden]{display:none!important}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+svg.i{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+svg.i.sm{width:14px;height:14px}
+
+/* ═══ rail ═══ */
+.rail{display:flex;align-items:center;gap:10px;padding:11px var(--pad);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;
+  background:rgba(16,19,31,.94);backdrop-filter:blur(10px);flex-wrap:wrap}
+.mark{display:flex;align-items:center;gap:10px;margin-right:auto;min-width:0}
+.logo{width:26px;height:26px;flex-shrink:0}
+body[data-state="live"] .logo .core{animation:corepulse 1.6s ease-in-out infinite}
+body[data-state="paused"] .logo .core{fill:var(--warn)}
+body[data-state="done"] .logo .core{fill:var(--ok)}
+@keyframes corepulse{50%{opacity:.3}}
+.wordmark{font-weight:700;letter-spacing:-.02em;font-size:15px;white-space:nowrap}
+.wordmark em{color:var(--mist);font-weight:500;font-style:normal}
+.tc{font-family:'IBM Plex Mono',monospace;font-size:clamp(14px,2.6vw,19px);letter-spacing:.06em;
+  color:var(--mist);font-variant-numeric:tabular-nums;transition:color .2s}
+body[data-state="live"] .tc{color:var(--tally)}
+body[data-state="paused"] .tc{color:var(--warn)}
+body[data-state="done"] .tc{color:var(--ok)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;
+  font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--mist);
+  border:1px solid var(--line);border-radius:var(--r);padding:5px 9px;white-space:nowrap;
+  text-decoration:none;transition:.16s var(--ease)}
+a.chip:hover,button.chip:hover{color:var(--paper);border-color:var(--mist)}
+.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;
+  border:1px solid var(--line);border-radius:var(--r);color:var(--mist);transition:.16s var(--ease)}
+.iconbtn:hover{color:var(--paper);background:var(--hi);border-color:var(--mist)}
+
+/* ═══ stage — tall by default so the deck sits below the fold ═══ */
+.stage{padding:var(--pad);display:flex;align-items:center;justify-content:center;
+  min-height:calc(100dvh - 168px)}
+.finder{position:relative;width:100%;max-width:1320px;aspect-ratio:16/9;
+  max-height:calc(100dvh - 196px);background:#0C0F1A;border:1px solid var(--line);
+  border-radius:var(--r);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.finder video,.finder canvas{width:100%;height:100%;object-fit:contain;display:none;background:#0C0F1A}
+.finder video.on,.finder canvas.on{display:block;animation:fade .35s var(--ease)}
+#stageCanvas{touch-action:none}
+#stageCanvas.grab{cursor:grab}
+#stageCanvas.grab:active,#stageCanvas.dragging{cursor:grabbing}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.crop{position:absolute;inset:12px;pointer-events:none;z-index:2}
+.crop i{position:absolute;width:20px;height:20px;border:1px solid rgba(125,211,252,.3);transition:border-color .25s}
+.crop i:nth-child(1){top:0;left:0;border-right:0;border-bottom:0}
+.crop i:nth-child(2){top:0;right:0;border-left:0;border-bottom:0}
+.crop i:nth-child(3){bottom:0;left:0;border-right:0;border-top:0}
+.crop i:nth-child(4){bottom:0;right:0;border-left:0;border-top:0}
+body[data-state="live"] .crop i{border-color:var(--tally)}
+body[data-state="paused"] .crop i{border-color:var(--warn)}
+body[data-state="done"] .crop i{border-color:rgba(134,239,172,.45)}
+.slate{text-align:center;padding:20px;max-width:520px;animation:rise .5s var(--ease)}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.slate h1{font-size:clamp(20px,3.6vw,32px);font-weight:600;letter-spacing:-.025em;line-height:1.16}
+.slate p{color:var(--mist);margin-top:10px;font-size:clamp(12.5px,1.6vw,14.5px);line-height:1.6}
+.eyebrow{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--armed);margin-bottom:12px}
+.scrollcue{display:inline-flex;align-items:center;gap:7px;margin-top:20px;font-size:11.5px;
+  color:var(--mist);font-family:'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;
+  animation:bob 2.2s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(4px)}}
+.count{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(12,15,26,.93);z-index:8}
+.count.on{display:flex}
+.count b{font-family:'IBM Plex Mono',monospace;font-size:clamp(56px,13vw,130px);color:var(--tally);
+  font-variant-numeric:tabular-nums;font-weight:500;animation:pop .7s var(--ease)}
+@keyframes pop{0%{transform:scale(.55);opacity:0}45%{transform:scale(1.06);opacity:1}100%{transform:scale(1)}}
+
+/* HUD */
+.hud{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;gap:8px;justify-content:center;
+  padding:12px;flex-wrap:wrap;background:linear-gradient(transparent,rgba(8,10,18,.82));
+  opacity:0;transform:translateY(8px);pointer-events:none;transition:.25s var(--ease)}
+.hud.on{opacity:1;transform:none;pointer-events:auto}
+body[data-state="done"] .hud{top:0;bottom:auto;justify-content:flex-end;
+  background:linear-gradient(rgba(8,10,18,.75),transparent)}
+.hbtn{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;min-height:38px;
+  border:1px solid var(--line);border-radius:99px;background:rgba(22,26,41,.92);
+  font-size:12.5px;font-weight:500;transition:.16s var(--ease);backdrop-filter:blur(6px)}
+.hbtn:hover{background:var(--hi);transform:translateY(-1px)}
+.hbtn.off{color:var(--tally);border-color:rgba(255,59,48,.45)}
+.hint-pill{display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--mist);padding:8px 12px;
+  border:1px dashed var(--line);border-radius:99px;background:rgba(22,26,41,.85)}
+.vu{display:flex;align-items:center;gap:3px;height:14px;padding:0 4px}
+.vu i{width:3px;background:var(--line);border-radius:2px;height:4px;transition:height .08s linear,background .08s}
+.vu i.lit{background:var(--ok)}
+.vu i.hot{background:var(--warn)}
+
+/* region picker */
+.region{position:absolute;inset:0;z-index:7;display:none;cursor:crosshair;touch-action:none}
+.region.on{display:block}
+.region .shade{position:absolute;inset:0;background:rgba(8,10,18,.62);transition:opacity .2s}
+.region.drawn .shade{opacity:0}
+.region .box{position:absolute;border:2px solid var(--armed);border-radius:3px;
+  box-shadow:0 0 0 9999px rgba(8,10,18,.62);display:none}
+.region .box.on{display:block}
+.region .box::after{content:attr(data-size);position:absolute;left:0;bottom:-24px;
+  font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--armed);white-space:nowrap}
+.region .bar{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;justify-content:center;
+  padding:12px;flex-wrap:wrap;background:linear-gradient(transparent,rgba(8,10,18,.9));z-index:2}
+.region .say{position:absolute;left:0;right:0;top:0;padding:14px;text-align:center;z-index:2;
+  font-size:13px;color:var(--paper);background:linear-gradient(rgba(8,10,18,.9),transparent)}
+
+/* ═══ trim ═══ */
+.trim{max-width:1320px;margin:0 auto;width:100%;padding:0 var(--pad) var(--pad);animation:rise .35s var(--ease)}
+.trimbox{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:16px}
+.trimhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.trimhead .lbl{margin:0;margin-right:auto}
+.track{position:relative;height:44px;background:var(--raise);border:1px solid var(--line);
+  border-radius:var(--r);margin-bottom:14px;touch-action:none}
+.track .sel{position:absolute;top:0;bottom:0;background:rgba(125,211,252,.16);
+  border-left:2px solid var(--armed);border-right:2px solid var(--armed)}
+.track .handle{position:absolute;top:-4px;width:16px;height:52px;margin-left:-8px;border-radius:4px;
+  background:var(--armed);cursor:ew-resize;box-shadow:0 2px 10px rgba(0,0,0,.4);transition:transform .12s}
+.track .handle:hover,.track .handle:focus-visible{transform:scaleY(1.06)}
+.track .handle::after{content:'';position:absolute;left:6px;top:20px;width:4px;height:12px;
+  border-left:1px solid rgba(11,18,32,.55);border-right:1px solid rgba(11,18,32,.55)}
+.track .head{position:absolute;top:0;bottom:0;width:2px;background:var(--tally);display:none}
+.track .head.on{display:block}
+
+/* ═══ toasts ═══ */
+.toasts{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));
+  z-index:75;display:flex;flex-direction:column;gap:8px;width:min(460px,calc(100vw - 24px));pointer-events:none}
+.toast{background:var(--raise);border:1px solid var(--line);border-left:3px solid var(--armed);
+  border-radius:var(--r);padding:11px 14px;font-size:13px;line-height:1.5;
+  box-shadow:0 10px 34px rgba(0,0,0,.55);animation:tin .3s var(--ease);pointer-events:auto}
+.toast.bad{border-left-color:var(--tally)}
+.toast.good{border-left-color:var(--ok)}
+.toast.out{animation:tout .25s var(--ease) forwards}
+@keyframes tin{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes tout{to{opacity:0;transform:translateY(8px) scale(.98)}}
+
+/* ═══ deck ═══ */
+.deck{border-top:1px solid var(--line);background:var(--panel)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;background:var(--line)}
+.cell{background:var(--panel);padding:15px var(--pad);min-width:0;transition:opacity .25s var(--ease)}
+.cell.locked{opacity:.4}
+.lbl{display:flex;align-items:center;gap:7px;font-family:'IBM Plex Mono',monospace;font-size:10px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--mist);margin-bottom:10px}
+.wrap{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;max-width:100%}
+.seg button{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;min-height:38px;
+  font-size:12.5px;font-weight:500;color:var(--mist);white-space:nowrap;transition:.16s var(--ease)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--hi);color:var(--paper)}
+.seg button:hover:not([aria-pressed="true"]):not(:disabled){color:var(--paper);background:rgba(37,44,66,.5)}
+.seg button:disabled{opacity:.4;cursor:not-allowed}
+select,input[type=text]{background:var(--raise);border:1px solid var(--line);border-radius:var(--r);
+  color:var(--paper);padding:8px 10px;min-height:38px;font-size:12.5px;font-family:inherit;max-width:100%;min-width:0}
+select:disabled{opacity:.4;cursor:not-allowed}
+.tip{font-size:11.5px;color:var(--mist);margin-top:9px;line-height:1.55}
+
+/* ═══ actions ═══ */
+.acts{position:sticky;bottom:0;z-index:25;display:flex;gap:9px;flex-wrap:wrap;justify-content:center;
+  padding:13px var(--pad) calc(13px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line);background:rgba(22,26,41,.96);backdrop-filter:blur(10px)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 18px;
+  min-height:46px;border-radius:var(--r);font-weight:600;font-size:13.5px;border:1px solid var(--line);
+  background:var(--raise);transition:.16s var(--ease);white-space:nowrap}
+.btn:hover:not([disabled]){background:var(--hi);transform:translateY(-1px)}
+.btn:active:not([disabled]){transform:translateY(0) scale(.985)}
+.btn[disabled]{opacity:.3;cursor:not-allowed}
+.btn.rec{background:var(--tally);border-color:var(--tally);color:#fff}
+.btn.rec:hover:not([disabled]){background:#E5342A}
+.btn.go{background:var(--armed);border-color:var(--armed);color:#0B1220}
+.btn.go:hover:not([disabled]){background:#9AE0FD}
+.btn.danger{border-color:rgba(255,59,48,.4);color:var(--tally)}
+.btn.danger:hover:not([disabled]){background:rgba(255,59,48,.14)}
+.dot{width:9px;height:9px;border-radius:50%;background:currentColor}
+body[data-state="live"] .btn.rec .dot{animation:corepulse 1.4s ease-in-out infinite}
+
+/* ═══ library ═══ */
+.lib{border-top:1px solid var(--line);padding:18px var(--pad)}
+.libhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.libhead h2{display:flex;align-items:center;gap:7px;font-size:12px;font-family:'IBM Plex Mono',monospace;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--mist);font-weight:400;margin-right:auto}
+.item{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);
+  border-radius:var(--r);padding:11px 13px;margin-bottom:8px;background:var(--panel);
+  animation:rise .4s var(--ease) backwards;transition:border-color .18s}
+.item:hover{border-color:#3A4366}
+.item .nm{font-size:13px;font-weight:500;min-width:0;flex:1 1 160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .meta{display:inline-flex;align-items:center;gap:5px;font-family:'IBM Plex Mono',monospace;
+  font-size:11px;color:var(--mist);white-space:nowrap}
+.item .meta.exp{color:var(--tally)}
+.mini{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:7px 11px;min-height:36px;
+  border:1px solid var(--line);border-radius:var(--r);color:var(--mist);text-decoration:none;transition:.16s var(--ease)}
+.mini:hover{color:var(--paper);background:var(--hi)}
+.mini.danger:hover{color:var(--tally);background:rgba(255,59,48,.13);border-color:rgba(255,59,48,.5)}
+
+/* ═══ notes ═══ */
+.note{border-top:1px solid var(--line);padding:20px var(--pad) 34px;
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:20px}
+.note div{font-size:12.5px;color:var(--mist);line-height:1.6}
+.note strong{display:flex;align-items:center;gap:6px;color:var(--paper);font-size:12px;margin-bottom:6px}
+.keys{display:flex;flex-wrap:wrap;gap:8px 12px}
+.keys span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+kbd{font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--line);
+  border-bottom-width:2px;border-radius:3px;padding:2px 6px;color:var(--paper);line-height:1}
+
+/* ═══ sheets ═══ */
+.veil{position:fixed;inset:0;z-index:90;background:rgba(8,10,18,.8);backdrop-filter:blur(3px);
+  display:flex;align-items:center;justify-content:center;padding:16px;animation:fade .22s var(--ease)}
+.veil.out{animation:fadeout .2s var(--ease) forwards}
+@keyframes fadeout{to{opacity:0}}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:10px;width:min(560px,100%);
+  max-height:90dvh;overflow:auto;padding:22px;box-shadow:0 24px 70px rgba(0,0,0,.6);
+  animation:sheetin .32s var(--ease)}
+@keyframes sheetin{from{opacity:0;transform:translateY(18px) scale(.975)}to{opacity:1;transform:none}}
+.sheet h3{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:600;letter-spacing:-.02em;margin-bottom:7px}
+.sheet>p{font-size:13px;color:var(--mist);line-height:1.6;margin-bottom:16px}
+.field{margin-bottom:14px}
+.field .lbl{margin-bottom:7px}
+.acct{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:var(--r);
+  padding:10px 12px;margin-bottom:16px;background:var(--raise);flex-wrap:wrap}
+.acct .who{flex:1;min-width:0}
+.acct .who b{display:block;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct .who span{font-size:11px;color:var(--mist);display:flex;align-items:center;gap:5px;margin-top:2px}
+.bar{height:6px;background:var(--raise);border-radius:99px;overflow:hidden;margin-top:12px}
+.bar i{display:block;height:100%;width:0;border-radius:99px;
+  background:linear-gradient(90deg,var(--armed),#A5E8FF,var(--armed));background-size:200% 100%;
+  animation:shimmer 1.4s linear infinite;transition:width .3s var(--ease)}
+@keyframes shimmer{to{background-position:-200% 0}}
+.linkbox{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.linkbox input{flex:1 1 200px;font-family:'IBM Plex Mono',monospace;font-size:12px}
+.help h4{font-size:13px;font-weight:600;margin:18px 0 7px;display:flex;align-items:center;gap:7px}
+.help p,.help li{font-size:13px;color:var(--mist);line-height:1.65}
+.help ol,.help ul{padding-left:18px;margin-top:4px}
+.help li{margin-bottom:5px}
+.help li b{color:var(--paper);font-weight:600}
+
+/* ═══ tour ═══ */
+.tourhole{position:fixed;z-index:95;border-radius:9px;border:1.5px solid var(--armed);
+  box-shadow:0 0 0 9999px rgba(8,10,18,.8),0 0 24px rgba(125,211,252,.35);
+  pointer-events:none;transition:.36s var(--ease)}
+.tourcard{position:fixed;z-index:96;width:min(330px,calc(100vw - 28px));background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.6);
+  animation:sheetin .3s var(--ease)}
+.tourcard h4{font-size:14.5px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.tourcard p{font-size:12.8px;color:var(--mist);line-height:1.6;margin-bottom:14px}
+.tourfoot{display:flex;align-items:center;gap:8px}
+.tourfoot .step{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mist);margin-right:auto}
+.tourbtn{padding:8px 13px;min-height:36px;border-radius:var(--r);font-size:12.5px;font-weight:600;
+  border:1px solid var(--line);background:var(--raise);transition:.16s var(--ease)}
+.tourbtn:hover{background:var(--hi)}
+.tourbtn.go{background:var(--armed);border-color:var(--armed);color:#0B1220}
+.tourblock{position:fixed;inset:0;z-index:94}
+
+/* ═══ install ═══ */
+.installcard{text-align:center}
+.installart{position:relative;width:96px;height:96px;margin:4px auto 18px}
+.installart .ring{position:absolute;inset:0;border-radius:24px;border:1.5px solid var(--armed);
+  opacity:.5;animation:ripple 2.4s ease-out infinite}
+.installart .ring:nth-child(2){animation-delay:.8s}
+.installart .ring:nth-child(3){animation-delay:1.6s}
+@keyframes ripple{0%{transform:scale(.72);opacity:.65}100%{transform:scale(1.25);opacity:0}}
+.installart svg{position:absolute;inset:0;margin:auto;width:64px;height:64px;animation:bob 3s ease-in-out infinite}
+.installart .arrow{position:absolute;left:50%;bottom:-2px;transform:translateX(-50%);
+  color:var(--armed);animation:drop 1.8s ease-in-out infinite}
+@keyframes drop{0%,100%{transform:translate(-50%,-4px);opacity:.4}50%{transform:translate(-50%,2px);opacity:1}}
+
+/* ═══ viewer ═══ */
+.viewer{max-width:980px;margin:0 auto;padding:var(--pad);width:100%}
+.vtitle{font-size:clamp(17px,3vw,22px);font-weight:600;letter-spacing:-.02em;margin-bottom:12px}
+.frame{position:relative;width:100%;aspect-ratio:16/9;background:#0C0F1A;border:1px solid var(--line);
+  border-radius:var(--r);overflow:hidden;margin-bottom:16px}
+.frame iframe{width:100%;height:100%;border:0}
+/* Drive's preview has a pop-out button top-right. The iframe is cross-origin so it
+   can't be styled — masking that corner is the only available method. */
+.nopop{position:absolute;top:0;right:0;width:74px;height:52px;background:#0C0F1A;z-index:2;border-bottom-left-radius:8px}
+.vmeta{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:22px}
+.dead{text-align:center;padding:48px 20px;animation:rise .45s var(--ease)}
+.dead h2{font-size:22px;margin-bottom:8px;letter-spacing:-.02em}
+.dead p{color:var(--mist);font-size:13.5px;line-height:1.6;max-width:420px;margin:0 auto 18px}
+.pitch{border-top:1px solid var(--line);padding-top:20px;font-size:13px;color:var(--mist);line-height:1.6}
+
+@media (max-width:760px){
+  .stage{min-height:auto;padding-bottom:8px}
+  .finder{aspect-ratio:auto;height:calc(100dvh - 260px);min-height:250px;max-height:none}
+}
+@media (max-width:560px){
+  .acts .btn{flex:1 1 calc(50% - 5px)}
+  .acts .btn[disabled]{display:none}
+  .wordmark em{display:none}
+  .hud{padding:8px}
+  .hbtn span:not(.vu){display:none}
+  .hbtn{padding:9px 12px}
+}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body data-state="idle">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-screen" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+<symbol id="i-cam" viewBox="0 0 24 24"><path d="M17 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3.5l5 3.5V7z"/></symbol>
+<symbol id="i-camoff" viewBox="0 0 24 24"><path d="M17 10.5V7a2 2 0 0 0-2-2H8m-4.5.5A2 2 0 0 0 2 7v10a2 2 0 0 0 2 2h11a2 2 0 0 0 1.5-.7M22 7l-5 3.5v3l5 3.5z"/><path d="M2 2l20 20"/></symbol>
+<symbol id="i-both" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><circle cx="17" cy="13" r="3.2" fill="currentColor" stroke="none"/><path d="M8 21h8M12 17v4"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></symbol>
+<symbol id="i-micoff" viewBox="0 0 24 24"><path d="M9 9V5a3 3 0 0 1 6 0v4m0 3.5a3 3 0 0 1-5 2.2M5 10a7 7 0 0 0 10.5 6.1M19 10a7 7 0 0 1-1 3.6M12 17v5M8 22h8"/><path d="M2 2l20 20"/></symbol>
+<symbol id="i-vol" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 4v16M16 4v16"/></symbol>
+<symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+<symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3v13m0 0 5-5m-5 5-5-5M3 20h18"/></symbol>
+<symbol id="i-share" viewBox="0 0 24 24"><path d="M9.5 13.5 15 17m-5.5-6.5L15 7"/><circle cx="18" cy="5.5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="18.5" r="3"/></symbol>
+<symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13.5a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.5 1.5"/><path d="M14 10.5a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6M10 11v6M14 11v6"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5 9 17.5 20 6.5"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/></symbol>
+<symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a9 9 0 1 1 16 0"/><path d="M12 14.5 16 9.5"/></symbol>
+<symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3 9.5 5.8M12 3l2.5 2.8M12 21l-2.5-2.8M12 21l2.5-2.8M3 12l2.8-2.5M3 12l2.8 2.5M21 12l-2.8-2.5M21 12l-2.8 2.5"/></symbol>
+<symbol id="i-magic" viewBox="0 0 24 24"><path d="M5 19 17 7M15 5l1.2 2.8L19 9l-2.8 1.2L15 13l-1.2-2.8L11 9l2.8-1.2z"/><path d="M6 4v3M4.5 5.5h3M19 16v2.5M17.75 17.25h2.5"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="m4 18 5-5 4.5 4.5L17 14l3 3"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-kbd" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></symbol>
+<symbol id="i-install" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+<symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3.5 22 20H2z"/><path d="M12 10v4M12 17h.01"/></symbol>
+<symbol id="i-switch" viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></symbol>
+<symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.2 9.3a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4M12 17.5h.01"/></symbol>
+<symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M8.2 7.6 20 18M20 6 8.2 16.4"/></symbol>
+<symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14m0 0 6-6m-6 6-6-6"/></symbol>
+<symbol id="i-undo" viewBox="0 0 24 24"><path d="M3 8h11a6 6 0 0 1 0 12h-6M3 8l4-4M3 8l4 4"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.5 20a2 2 0 0 0 3 0"/></symbol>
+</defs></svg>
+
+<!-- ═══ RECORDER ═══ -->
+<div id="app" style="display:flex;flex-direction:column;flex:1">
+
+<header class="rail">
+  <div class="mark">
+    <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+      <rect width="64" height="64" rx="15" fill="#161A29" stroke="#2A3149"/>
+      <circle cx="32" cy="32" r="19" fill="none" stroke="#7DD3FC" stroke-width="2.5" opacity=".55"/>
+      <circle class="core" cx="32" cy="32" r="9.5" fill="#FF3B30"/>
+      <g stroke="#E9EDF7" stroke-width="2.2" stroke-linecap="round" opacity=".6">
+        <path d="M12 19v-5h5M52 19v-5h-5M12 45v5h5M52 45v5h-5"/></g>
+    </svg>
+    <span class="wordmark">Tallyroll <em>/ local recorder</em></span>
+  </div>
+  <span class="chip" id="fmtChip">webm</span>
+  <span class="tc" id="tc" role="timer">00:00:00</span>
+  <button class="iconbtn" id="helpBtn" title="Help and instructions" aria-label="Help and instructions">
+    <svg class="i"><use href="#i-help"/></svg></button>
+</header>
+
+<main class="stage">
+  <div class="finder" id="finder">
+    <div class="crop" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="slate" id="slate">
+      <p class="eyebrow">Nothing leaves this device unless you share it</p>
+      <h1>Record your screen. Keep the whole thing.</h1>
+      <p>No watermark, no five-minute cutoff, no account. Trim it, then share a link that expires when you say.</p>
+      <span class="scrollcue"><svg class="i sm"><use href="#i-down"/></svg>Scroll for settings</span>
+    </div>
+    <canvas id="stageCanvas"></canvas>
+    <video id="playback" controls playsinline></video>
+
+    <div class="hud" id="hud">
+      <button class="hbtn" id="hMic" title="Mute microphone (M)">
+        <svg class="i sm"><use href="#i-mic"/></svg><span>Mic</span>
+        <span class="vu" id="vu"><i></i><i></i><i></i><i></i><i></i></span></button>
+      <button class="hbtn" id="hCam" title="Hide camera bubble (C)">
+        <svg class="i sm"><use href="#i-cam"/></svg><span>Camera</span></button>
+      <button class="hbtn" id="hGrab" title="Save the current frame as a PNG">
+        <svg class="i sm"><use href="#i-image"/></svg><span>Grab still</span></button>
+      <span class="hint-pill" id="dragtip" hidden>Drag the bubble anywhere</span>
+    </div>
+
+    <div class="region" id="region">
+      <div class="shade"></div>
+      <div class="box" id="regionBox" data-size=""></div>
+      <div class="say">Drag across the preview to pick the area you want recorded.</div>
+      <div class="bar">
+        <button class="btn go" id="regionOk" disabled><svg class="i"><use href="#i-crop"/></svg>Record this area</button>
+        <button class="btn" id="regionAll">Use everything</button>
+        <button class="btn" id="regionReset">Redraw</button>
+      </div>
+    </div>
+
+    <div class="count" id="count"><b id="countN">3</b></div>
+  </div>
+</main>
+
+<section class="trim" id="trimPanel" hidden>
+  <div class="trimbox">
+    <div class="trimhead">
+      <span class="lbl"><svg class="i sm"><use href="#i-scissors"/></svg>Trim</span>
+      <span class="mono" id="trimRange" style="font-size:12px;color:var(--mist)">0:00 → 0:00</span>
+      <span class="mono" id="trimLen" style="font-size:12px;color:var(--armed)"></span>
+    </div>
+    <div class="track" id="trimTrack">
+      <div class="sel" id="trimSel"></div>
+      <div class="head" id="trimHead"></div>
+      <button class="handle" id="trimA" aria-label="Trim start" role="slider" aria-valuemin="0"></button>
+      <button class="handle" id="trimB" aria-label="Trim end" role="slider" aria-valuemin="0"></button>
+    </div>
+    <div class="wrap">
+      <button class="btn" id="trimPlay"><svg class="i"><use href="#i-play"/></svg>Preview selection</button>
+      <button class="btn go" id="trimApply"><svg class="i"><use href="#i-scissors"/></svg>Apply trim</button>
+      <button class="btn" id="trimRevert" hidden><svg class="i"><use href="#i-undo"/></svg>Revert to original</button>
+      <button class="btn" id="trimClose">Close</button>
+    </div>
+    <p class="tip" id="trimNote">Drag the two handles. Applying re-encodes in the browser and plays through once in real time, so a 2-minute selection takes about 2 minutes.</p>
+    <div id="trimProg" hidden><div class="bar"><i id="trimBar"></i></div></div>
+  </div>
+</section>
+
+<section class="deck">
+  <div class="grid">
+
+    <div class="cell" data-lockable data-tour="capture">
+      <span class="lbl" id="lblMode"><svg class="i sm"><use href="#i-screen"/></svg>Capture</span>
+      <div class="wrap">
+        <div class="seg" role="group" aria-labelledby="lblMode">
+          <button id="mScreen" aria-pressed="true"><svg class="i sm"><use href="#i-screen"/></svg>Screen</button>
+          <button id="mBoth" aria-pressed="false"><svg class="i sm"><use href="#i-both"/></svg>Screen + cam</button>
+          <button id="mCam" aria-pressed="false"><svg class="i sm"><use href="#i-cam"/></svg>Camera</button>
+        </div>
+        <div class="seg" role="group" aria-label="Recorded area">
+          <button id="aFull" aria-pressed="true">Full area</button>
+          <button id="aPick" aria-pressed="false"><svg class="i sm"><use href="#i-crop"/></svg>Pick area</button>
+        </div>
+      </div>
+      <p class="tip" id="modeTip">Shares a screen, window or single tab.</p>
+    </div>
+
+    <div class="cell" id="cellBubble" data-tour="bubble">
+      <span class="lbl" id="lblBub"><svg class="i sm"><use href="#i-move"/></svg>Camera bubble</span>
+      <div class="wrap">
+        <div class="seg" role="group" aria-labelledby="lblBub">
+          <button id="pAuto" aria-pressed="true"><svg class="i sm"><use href="#i-magic"/></svg>Auto-dodge</button>
+          <button id="pFree" aria-pressed="false"><svg class="i sm"><use href="#i-move"/></svg>Place it myself</button>
+        </div>
+        <select id="camSize" aria-label="Bubble size">
+          <option value="0.16">Small</option><option value="0.22" selected>Medium</option><option value="0.30">Large</option></select>
+        <select id="camShape" aria-label="Bubble shape">
+          <option value="circle" selected>Circle</option><option value="round">Rounded</option></select>
+        <select id="camMirror" aria-label="Mirror camera">
+          <option value="1" selected>Mirrored</option><option value="0">Not mirrored</option></select>
+      </div>
+      <p class="tip">Auto-dodge glides the bubble to the emptiest corner every couple of seconds. These stay adjustable while you record.</p>
+    </div>
+
+    <div class="cell" data-lockable data-tour="audio">
+      <span class="lbl" id="lblAud"><svg class="i sm"><use href="#i-vol"/></svg>Audio</span>
+      <div class="wrap">
+        <div class="seg" role="group" aria-labelledby="lblAud">
+          <button id="micOn" aria-pressed="true"><svg class="i sm"><use href="#i-mic"/></svg>Mic on</button>
+          <button id="micOff" aria-pressed="false"><svg class="i sm"><use href="#i-micoff"/></svg>Mic off</button></div>
+        <div class="seg" role="group" aria-label="System audio">
+          <button id="sysOn" aria-pressed="true">System on</button>
+          <button id="sysOff" aria-pressed="false">System off</button></div>
+      </div>
+      <div class="wrap" style="margin-top:8px">
+        <select id="micPick" aria-label="Microphone"><option value="">Default microphone</option></select>
+        <select id="camPick" aria-label="Camera"><option value="">Default camera</option></select>
+      </div>
+      <p class="tip">Tick “share tab audio” in the browser picker to capture system sound.</p>
+    </div>
+
+    <div class="cell" data-lockable data-tour="quality">
+      <span class="lbl"><svg class="i sm"><use href="#i-gauge"/></svg>Quality &amp; limits</span>
+      <div class="wrap">
+        <select id="quality" aria-label="Bitrate">
+          <option value="8000000">High — 8 Mbps</option>
+          <option value="4000000" selected>Balanced — 4 Mbps</option>
+          <option value="1500000">Small file — 1.5 Mbps</option></select>
+        <select id="fps" aria-label="Frame rate">
+          <option value="30" selected>30 fps</option><option value="60">60 fps</option><option value="15">15 fps</option></select>
+        <select id="maxLen" aria-label="Auto-stop">
+          <option value="0" selected>No auto-stop</option><option value="5">Stop at 5 min</option>
+          <option value="15">Stop at 15 min</option><option value="30">Stop at 30 min</option>
+          <option value="60">Stop at 60 min</option></select>
+        <div class="seg" role="group" aria-label="Countdown">
+          <button id="cdOn" aria-pressed="true">3-2-1</button>
+          <button id="cdOff" aria-pressed="false">Instant</button></div>
+      </div>
+      <p class="tip" id="sizeTip">Balanced suits a 1080p walkthrough — roughly 30 MB a minute.</p>
+    </div>
+
+  </div>
+</section>
+
+<div class="acts">
+  <button class="btn rec" id="start" data-tour="start"><span class="dot"></span> Start recording</button>
+  <button class="btn" id="pause" disabled><svg class="i"><use href="#i-pause"/></svg> Pause</button>
+  <button class="btn" id="stop" disabled><svg class="i"><use href="#i-stop"/></svg> Stop</button>
+  <button class="btn" id="trimBtn" disabled><svg class="i"><use href="#i-scissors"/></svg> Trim</button>
+  <button class="btn" id="save" disabled><svg class="i"><use href="#i-dl"/></svg> Download</button>
+  <button class="btn go" id="share" disabled data-tour="share"><svg class="i"><use href="#i-share"/></svg> <span id="shareLbl">Get share link</span></button>
+  <button class="btn" id="again" disabled>New recording</button>
+</div>
+
+<section class="lib" id="lib" hidden>
+  <div class="libhead">
+    <h2><svg class="i sm"><use href="#i-link"/></svg>Your shared links</h2>
+    <span class="chip" id="libAcct" hidden></span>
+  </div>
+  <div id="libList"></div>
+</section>
+
+<footer class="note">
+  <div><strong><svg class="i sm"><use href="#i-shield"/></svg>Where your video goes</strong>Capture, mixing, trimming and encoding all run in this tab. Nothing is uploaded until you press Get share link.</div>
+  <div><strong><svg class="i sm"><use href="#i-clock"/></svg>Length limit</strong>None. The only ceiling is your free disk space<span id="diskNote"></span>.</div>
+  <div><strong><svg class="i sm"><use href="#i-kbd"/></svg>Shortcuts</strong>
+    <span class="keys"><span><kbd>R</kbd> record</span><span><kbd>P</kbd> pause</span><span><kbd>M</kbd> mute</span>
+    <span><kbd>C</kbd> camera</span><span><kbd>S</kbd> download</span><span><kbd>?</kbd> help</span></span></div>
+  <div><strong><svg class="i sm"><use href="#i-install"/></svg>Install it</strong>Browser menu → Install. It opens like a native app and works offline.</div>
+</footer>
+
+</div>
+
+<!-- ═══ VIEWER ═══ -->
+<div id="viewer" hidden style="flex:1;display:flex;flex-direction:column">
+  <header class="rail">
+    <div class="mark">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+        <rect width="64" height="64" rx="15" fill="#161A29" stroke="#2A3149"/>
+        <circle cx="32" cy="32" r="19" fill="none" stroke="#7DD3FC" stroke-width="2.5" opacity=".55"/>
+        <circle cx="32" cy="32" r="9.5" fill="#86EFAC"/></svg>
+      <span class="wordmark">Tallyroll <em>/ shared recording</em></span>
+    </div>
+    <a class="chip" href="#" id="vHome">Make your own <svg class="i sm"><use href="#i-share"/></svg></a>
+  </header>
+  <main class="viewer" id="vBody"></main>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   Google OAuth client ID. Public by design — it ships in the page
+   and anyone can read it. Never put a client *secret* here; this
+   app doesn't use one. The authorised JavaScript origin must be
+   your bare Pages origin: https://yourname.github.io
+   ═══════════════════════════════════════════════════════════════ */
+const GOOGLE_CLIENT_ID = '1017332677358-4ab75im61g4p3m42haqf2df37c5meh96.apps.googleusercontent.com';
+const APP_FOLDER = 'Tallyroll';
+const APP_NAME = 'Tallyroll';
+
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const body = document.body;
+const ico = (n, cls) => `<svg class="i ${cls||''}"><use href="#i-${n}"/></svg>`;
+
+function say(msg, kind){
+  const t = document.createElement('div');
+  t.className = 'toast' + (kind ? ' ' + kind : '');
+  t.textContent = msg;
+  $('toasts').appendChild(t);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 260); }, 6000);
+}
+const pad2 = n => String(n).padStart(2,'0');
+const fmtTime = ms => { const s = Math.floor(ms/1000);
+  return `${pad2(Math.floor(s/3600))}:${pad2(Math.floor(s%3600/60))}:${pad2(s%60)}`; };
+const clip = s => `${Math.floor(s/60)}:${pad2(Math.floor(s%60))}`;
+const fmtBytes = b => b >= 1073741824 ? (b/1073741824).toFixed(2)+' GB'
+                    : b >= 1048576 ? (b/1048576).toFixed(1)+' MB' : Math.round(b/1024)+' KB';
+function fmtLeft(ms){
+  if (ms <= 0) return 'expired';
+  const d = Math.floor(ms/86400000), h = Math.floor(ms%86400000/3600000);
+  if (d >= 1) return d + (d===1?' day':' days') + ' left';
+  if (h >= 1) return h + (h===1?' hour':' hours') + ' left';
+  return Math.max(1, Math.floor(ms/60000)) + ' min left';
+}
+const b36 = n => n.toString(36);
+const siteUrl = () => location.origin + location.pathname;
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* url-safe base64 so the video name can travel inside the share link */
+const enc64 = s => { try { return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); } catch { return ''; } };
+const dec64 = s => { try { return decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/')))); } catch { return ''; } };
+
+/* ── modal plumbing ─────────────────────── */
+function openSheet(html, onMount, cls){
+  const veil = document.createElement('div');
+  veil.className = 'veil';
+  veil.innerHTML = `<div class="sheet ${cls||''}" role="dialog" aria-modal="true">${html}</div>`;
+  document.body.appendChild(veil);
+  const close = () => { veil.classList.add('out'); setTimeout(() => veil.remove(), 200);
+    document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  veil.addEventListener('click', e => { if (e.target === veil) close(); });
+  document.addEventListener('keydown', onKey);
+  onMount && onMount(veil.firstChild, close);
+  const f = veil.querySelector('button,input,select'); f && f.focus();
+  return close;
+}
+function confirmSheet({ title, msg, ok='Delete', danger=true }){
+  return new Promise(res => {
+    openSheet(`<h3>${ico('warn')}${esc(title)}</h3><p>${esc(msg)}</p>
+      <div class="wrap" style="justify-content:flex-end">
+        <button class="btn" data-no>Cancel</button>
+        <button class="btn ${danger?'danger':'go'}" data-yes>${ico('trash')}${esc(ok)}</button></div>`,
+      (sheet, close) => {
+        sheet.querySelector('[data-no]').onclick = () => { close(); res(false); };
+        sheet.querySelector('[data-yes]').onclick = () => { close(); res(true); };
+      });
+  });
+}
+
+/* ═══════════ VIEWER ROUTE ═══════════ */
+function routeViewer(){
+  const m = location.hash.match(/^#\/v\/([A-Za-z0-9_-]+)(?:~([a-z0-9]*))?(?:~([A-Za-z0-9_\-]*))?/);
+  if (!m) return false;
+  $('app').hidden = true; $('viewer').hidden = false;
+  $('vHome').href = siteUrl();
+
+  const id = m[1];
+  const expMs = m[2] ? parseInt(m[2], 36) * 60000 : 0;
+  const name = m[3] ? dec64(m[3]) : '';
+  const left = expMs ? expMs - Date.now() : Infinity;
+  const box = $('vBody');
+  document.title = (name ? name + ' — ' : 'Shared recording — ') + APP_NAME;
+
+  if (left <= 0){
+    box.innerHTML = `<div class="dead"><h2>This link has expired</h2>
+      <p>The person who shared it set it to delete itself, and that time has passed. Ask them for a fresh link.</p>
+      <a class="btn go" href="${siteUrl()}" style="text-decoration:none">Record your own</a></div>`;
+    return true;
+  }
+
+  box.innerHTML = `
+    ${name ? `<h1 class="vtitle">${esc(name)}</h1>` : ''}
+    <div class="frame">
+      <iframe src="https://drive.google.com/file/d/${id}/preview" allow="autoplay; fullscreen"
+              allowfullscreen title="Shared screen recording"></iframe>
+      <div class="nopop" aria-hidden="true"></div>
+    </div>
+    <div class="vmeta">
+      <a class="btn go" href="https://drive.google.com/uc?export=download&id=${id}" style="text-decoration:none">
+        ${ico('dl')} Download video</a>
+      <button class="btn" id="vCopy">${ico('copy')} Copy link</button>
+      ${expMs ? `<span class="chip">${ico('clock','sm')}${fmtLeft(left)}</span>
+                 <span class="chip">deletes ${new Date(expMs).toLocaleString()}</span>`
+              : `<span class="chip">no expiry set</span>`}
+    </div>
+    <div class="pitch">Recorded with <a href="${siteUrl()}">${APP_NAME}</a> — a screen recorder that runs
+      entirely in your browser. No watermark, no time limit, no account.</div>`;
+
+  $('vCopy').onclick = async () => {
+    const text = `${name || 'Screen recording'}${expMs ? ' (' + fmtLeft(left).replace(' left','') + ' left)' : ''}\n${location.href}\n\nRecorded with ${APP_NAME} — ${siteUrl()}`;
+    try {
+      if (navigator.share && /Mobi|Android/i.test(navigator.userAgent))
+        await navigator.share({ title: name || APP_NAME, text, url: location.href });
+      else { await navigator.clipboard.writeText(text); say('Name, link and expiry copied.', 'good'); }
+    } catch { say('Copy failed — copy it from the address bar instead.', 'bad'); }
+  };
+  return true;
+}
+if (routeViewer()) return;
+window.addEventListener('hashchange', () => location.reload());
+
+/* ═══════════ RECORDER ═══════════ */
+const ui = {};
+['tc','slate','stageCanvas','playback','count','countN','dragtip','finder','hud','vu','helpBtn',
+ 'hMic','hCam','hGrab','start','pause','stop','save','share','shareLbl','again','trimBtn',
+ 'quality','fps','maxLen','camSize','camShape','camMirror','micPick','camPick',
+ 'fmtChip','sizeTip','modeTip','lib','libList','libAcct','cellBubble','diskNote',
+ 'region','regionBox','regionOk','regionAll','regionReset',
+ 'trimPanel','trimTrack','trimSel','trimHead','trimA','trimB','trimRange','trimLen',
+ 'trimPlay','trimApply','trimRevert','trimClose','trimNote','trimProg','trimBar']
+ .forEach(k => ui[k] = $(k));
+
+const opt = { mode:'screen', place:'auto', mic:true, sys:true, countdown:true, pickArea:false };
+
+function seg(onBtn, offBtn, key){
+  const set = v => { opt[key] = v;
+    onBtn.setAttribute('aria-pressed', String(v)); offBtn.setAttribute('aria-pressed', String(!v)); };
+  onBtn.onclick = () => set(true); offBtn.onclick = () => set(false);
+}
+seg($('micOn'), $('micOff'), 'mic');
+seg($('sysOn'), $('sysOff'), 'sys');
+seg($('cdOn'), $('cdOff'), 'countdown');
+
+const MODE_TIPS = {
+  screen:'Shares a screen, window or single tab.',
+  both:'Screen plus a camera bubble burned into the video.',
+  cam:'Just your camera and voice. This is the mode that works on phones and tablets.'
+};
+function setMode(m){
+  opt.mode = m;
+  [['screen',$('mScreen')],['both',$('mBoth')],['cam',$('mCam')]]
+    .forEach(([k,b]) => b.setAttribute('aria-pressed', String(k===m)));
+  ui.modeTip.textContent = MODE_TIPS[m];
+  const off = m !== 'both';
+  [$('pAuto'), $('pFree'), ui.camSize, ui.camShape, ui.camMirror].forEach(el => el.disabled = off);
+  ui.cellBubble.classList.toggle('locked', off);
+  if (!off) setPlace(opt.place); else ui.dragtip.hidden = true;
+}
+$('mScreen').onclick = () => setMode('screen');
+$('mBoth').onclick = () => setMode('both');
+$('mCam').onclick = () => setMode('cam');
+
+function setArea(pick){
+  opt.pickArea = pick;
+  $('aFull').setAttribute('aria-pressed', String(!pick));
+  $('aPick').setAttribute('aria-pressed', String(pick));
+}
+$('aFull').onclick = () => setArea(false);
+$('aPick').onclick = () => setArea(true);
+
+function setPlace(p){
+  opt.place = p;
+  $('pAuto').setAttribute('aria-pressed', String(p==='auto'));
+  $('pFree').setAttribute('aria-pressed', String(p==='free'));
+  const free = p === 'free' && opt.mode === 'both';
+  ui.dragtip.hidden = !(free && ui.stageCanvas.classList.contains('on'));
+  ui.stageCanvas.classList.toggle('grab', free);
+}
+$('pAuto').onclick = () => setPlace('auto');
+$('pFree').onclick = () => setPlace('free');
+
+const CANDIDATES = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4',
+  'video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+const MIME = (window.MediaRecorder && CANDIDATES.find(t => MediaRecorder.isTypeSupported(t))) || '';
+const EXT = MIME.includes('mp4') ? 'mp4' : 'webm';
+ui.fmtChip.textContent = EXT;
+const CAN_SCREEN = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+
+if (!CAN_SCREEN){
+  setMode('cam');
+  $('mScreen').disabled = true; $('mBoth').disabled = true;
+  $('aPick').disabled = true;
+  ui.modeTip.textContent = 'Screen capture is not available in this browser, so camera recording is selected. Screen sharing works on desktop Chrome, Edge, Firefox and Safari.';
+} else setMode('screen');
+
+if (navigator.storage && navigator.storage.estimate){
+  navigator.storage.estimate().then(e => {
+    if (e && e.quota) ui.diskNote.textContent = ' (about ' + fmtBytes(e.quota - (e.usage||0)) + ' available here)';
+  }).catch(()=>{});
+}
+async function listDevices(){
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const fill = (sel, kind, fallback) => {
+      const list = devs.filter(d => d.kind === kind && d.deviceId);
+      if (!list.length) return;
+      const cur = sel.value;
+      sel.innerHTML = `<option value="">${fallback}</option>` +
+        list.map(d => `<option value="${esc(d.deviceId)}">${esc((d.label||fallback).slice(0,42))}</option>`).join('');
+      if (cur) sel.value = cur;
+    };
+    fill(ui.micPick,'audioinput','Default microphone');
+    fill(ui.camPick,'videoinput','Default camera');
+  } catch {}
+}
+listDevices();
+
+/* ── notifications: reach the user when they're in another window ── */
+function askNotify(){
+  try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
+}
+ui.maxLen.addEventListener('change', () => { if (ui.maxLen.value !== '0') askNotify(); });
+function notify(title, msg){
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (!document.hidden) return;    // the on-page toast already covers this case
+    new Notification(title, { body: msg, icon:'icons/icon-192.png', tag:'tallyroll' });
+  } catch {}
+}
+
+/* ── state ─────────────────────────────── */
+let recorder=null, chunks=[], blob=null, blobUrl=null, originalBlob=null;
+let screenStream=null, camStream=null, micStream=null;
+let audioCtx=null, meterCtx=null, analyser=null, meterRAF=0;
+let ticker=null, canvas=null, ctx=null, screenVid=null, camVid=null;
+let t0=0, accrued=0, clock=null, running=false, autoStopAt=0;
+let bubble={x:.78,y:.74,d:.22}, autoTimer=0, autoCorner='br';
+let micMuted=false, camHidden=false, crop=null;
+let currentShare=null, trimming=false;
+const setState = s => body.dataset.state = s;
+
+function lockControls(locked){
+  ['mScreen','mBoth','mCam','aFull','aPick','micOn','micOff','sysOn','sysOff','cdOn','cdOff']
+    .forEach(i => $(i).disabled = locked);
+  [ui.micPick, ui.camPick, ui.quality, ui.fps, ui.maxLen].forEach(el => el.disabled = locked);
+  document.querySelectorAll('[data-lockable]').forEach(c => c.classList.toggle('locked', locked));
+  if (!locked){
+    setMode(opt.mode);
+    if (!CAN_SCREEN){ $('mScreen').disabled = true; $('mBoth').disabled = true; $('aPick').disabled = true; }
+  }
+}
+
+/* Background tabs throttle rAF and setInterval, which would freeze the composite the
+   moment the user switches windows — exactly when they're recording. A worker timer
+   keeps firing at full rate. */
+function makeTicker(fps, fn){
+  const src = 'let h;onmessage=e=>{clearInterval(h);if(e.data>0)h=setInterval(()=>postMessage(0),e.data)}';
+  const w = new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
+  w.onmessage = fn; w.postMessage(Math.max(8, Math.round(1000/fps)));
+  return w;
+}
+
+/* ── auto-dodge ────────────────────────── */
+const probe = document.createElement('canvas'); probe.width = 64; probe.height = 36;
+const pctx = probe.getContext('2d', { willReadFrequently:true });
+const CORNER_XY = { tl:[.16,.20], tr:[.84,.20], bl:[.16,.80], br:[.84,.80] };
+function calmestCorner(src){
+  try { pctx.drawImage(src, 0, 0, 64, 36); } catch { return autoCorner; }
+  let data; try { data = pctx.getImageData(0,0,64,36).data; } catch { return autoCorner; }
+  const regions = { tl:[0,0], tr:[42,0], bl:[0,22], br:[42,22] };
+  let best = autoCorner, bestScore = Infinity;
+  for (const k in regions){
+    const [ox,oy] = regions[k];
+    let sum=0, sq=0, n=0;
+    for (let y=oy; y<oy+14; y++) for (let x=ox; x<ox+22; x++){
+      const i=(y*64+x)*4, l=data[i]*.299+data[i+1]*.587+data[i+2]*.114;
+      sum+=l; sq+=l*l; n++;
+    }
+    const mean=sum/n, variance=sq/n-mean*mean;
+    const stay = (k===autoCorner) ? .75 : 1;
+    if (variance*stay < bestScore){ bestScore = variance*stay; best = k; }
+  }
+  return best;
+}
+
+/* ── compositing (with optional region crop) ── */
+function buildComposite(fps){
+  const useScreen = opt.mode !== 'cam';
+  const base = useScreen ? screenStream : camStream;
+  const st = base.getVideoTracks()[0].getSettings();
+  canvas = document.createElement('canvas');
+  canvas.width = st.width || 1280; canvas.height = st.height || 720;
+  ctx = canvas.getContext('2d', { alpha:false });
+
+  if (useScreen){
+    screenVid = document.createElement('video');
+    screenVid.srcObject = screenStream; screenVid.muted = true;
+    screenVid.playsInline = true; screenVid.play().catch(()=>{});
+  }
+  if (camStream){
+    camVid = document.createElement('video');
+    camVid.srcObject = camStream; camVid.muted = true;
+    camVid.playsInline = true; camVid.play().catch(()=>{});
+  }
+  const stageCtx = ui.stageCanvas.getContext('2d', { alpha:false });
+
+  const draw = () => {
+    const main = useScreen ? screenVid : camVid;
+    const mirror = ui.camMirror.value === '1';
+    if (main && main.videoWidth){
+      const sw = main.videoWidth, sh = main.videoHeight;
+      // crop is normalised so it survives a mid-recording resolution change
+      const cx0 = crop ? Math.round(crop.x*sw) : 0, cy0 = crop ? Math.round(crop.y*sh) : 0;
+      const cw = crop ? Math.max(16, Math.round(crop.w*sw)) : sw;
+      const ch = crop ? Math.max(16, Math.round(crop.h*sh)) : sh;
+      if (canvas.width !== cw || canvas.height !== ch){ canvas.width = cw; canvas.height = ch; }
+      if (useScreen) ctx.drawImage(main, cx0, cy0, cw, ch, 0, 0, cw, ch);
+      else {
+        ctx.save();
+        if (mirror){ ctx.translate(cw, 0); ctx.scale(-1,1); }
+        ctx.drawImage(main, cx0, cy0, cw, ch, 0, 0, cw, ch); ctx.restore();
+      }
+    } else { ctx.fillStyle = '#0C0F1A'; ctx.fillRect(0,0,canvas.width,canvas.height); }
+
+    if (opt.mode === 'both' && !camHidden && camVid && camVid.videoWidth){
+      if (opt.place === 'auto'){
+        if (Date.now()-autoTimer > 2200){ autoTimer = Date.now(); autoCorner = calmestCorner(canvas); }
+        const [tx,ty] = CORNER_XY[autoCorner];
+        bubble.x += (tx-bubble.x)*.06; bubble.y += (ty-bubble.y)*.06;
+      }
+      bubble.d = parseFloat(ui.camSize.value);
+      const d = Math.round(Math.min(canvas.width, canvas.height)*bubble.d);
+      const cx = Math.min(canvas.width-d/2, Math.max(d/2, bubble.x*canvas.width));
+      const cy = Math.min(canvas.height-d/2, Math.max(d/2, bubble.y*canvas.height));
+      const x = cx-d/2, y = cy-d/2;
+      const side = Math.min(camVid.videoWidth, camVid.videoHeight);
+      const sx = (camVid.videoWidth-side)/2, sy = (camVid.videoHeight-side)/2;
+      ctx.save(); ctx.beginPath();
+      if (ui.camShape.value === 'circle') ctx.arc(cx, cy, d/2, 0, Math.PI*2);
+      else if (ctx.roundRect) ctx.roundRect(x, y, d, d, d*.18);
+      else ctx.rect(x, y, d, d);
+      ctx.closePath();
+      ctx.shadowColor='rgba(0,0,0,.5)'; ctx.shadowBlur=Math.round(d*.1); ctx.fill(); ctx.shadowBlur=0;
+      ctx.strokeStyle='rgba(233,237,247,.22)'; ctx.lineWidth=Math.max(2,d*.012); ctx.stroke();
+      ctx.clip();
+      if (mirror){ ctx.translate(x+d, y); ctx.scale(-1,1); } else ctx.translate(x, y);
+      ctx.drawImage(camVid, sx, sy, side, side, 0, 0, d, d);
+      ctx.restore();
+    }
+    if (ui.stageCanvas.width !== canvas.width || ui.stageCanvas.height !== canvas.height){
+      ui.stageCanvas.width = canvas.width; ui.stageCanvas.height = canvas.height;
+    }
+    stageCtx.drawImage(canvas, 0, 0);
+  };
+  ticker = makeTicker(fps, draw);
+  return canvas.captureStream(fps);
+}
+
+/* ── map a pointer onto the letterboxed canvas ── */
+function pointToNorm(e, el){
+  const box = el || ui.stageCanvas;
+  const r = box.getBoundingClientRect();
+  const ar = ui.stageCanvas.width / ui.stageCanvas.height;
+  let w = r.width, h = r.width/ar;
+  if (h > r.height){ h = r.height; w = r.height*ar; }
+  return { x:(e.clientX-(r.left+(r.width-w)/2))/w, y:(e.clientY-(r.top+(r.height-h)/2))/h,
+           ox:r.left+(r.width-w)/2, oy:r.top+(r.height-h)/2, w, h, r };
+}
+let dragging = false;
+ui.stageCanvas.addEventListener('pointerdown', e => {
+  if (opt.mode !== 'both' || opt.place !== 'free' || camHidden) return;
+  dragging = true; ui.stageCanvas.setPointerCapture(e.pointerId);
+  ui.stageCanvas.classList.add('dragging');
+  const p = pointToNorm(e); bubble.x = p.x; bubble.y = p.y;
+});
+ui.stageCanvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const p = pointToNorm(e);
+  bubble.x = Math.min(1, Math.max(0, p.x)); bubble.y = Math.min(1, Math.max(0, p.y));
+});
+['pointerup','pointercancel'].forEach(ev => ui.stageCanvas.addEventListener(ev, () => {
+  dragging = false; ui.stageCanvas.classList.remove('dragging'); }));
+
+/* ── region picker ─────────────────────── */
+function pickRegion(){
+  return new Promise(resolve => {
+    let a = null, b = null, drawing = false;
+    ui.region.classList.add('on');
+    ui.region.classList.remove('drawn');
+    ui.regionBox.classList.remove('on');
+    ui.regionOk.disabled = true;
+
+    const paint = () => {
+      if (!a || !b) return;
+      const p = pointToNorm({ clientX:0, clientY:0 }, ui.region);
+      const x1 = Math.min(a.x,b.x), y1 = Math.min(a.y,b.y);
+      const x2 = Math.max(a.x,b.x), y2 = Math.max(a.y,b.y);
+      const rb = ui.region.getBoundingClientRect();
+      ui.regionBox.style.left   = (p.ox - rb.left + x1*p.w) + 'px';
+      ui.regionBox.style.top    = (p.oy - rb.top  + y1*p.h) + 'px';
+      ui.regionBox.style.width  = ((x2-x1)*p.w) + 'px';
+      ui.regionBox.style.height = ((y2-y1)*p.h) + 'px';
+      ui.regionBox.dataset.size = Math.round((x2-x1)*ui.stageCanvas.width) + ' × ' +
+                                  Math.round((y2-y1)*ui.stageCanvas.height) + ' px';
+      ui.regionBox.classList.add('on');
+      ui.region.classList.add('drawn');
+      ui.regionOk.disabled = (x2-x1) < .04 || (y2-y1) < .04;
+    };
+    const clampPt = e => { const p = pointToNorm(e, ui.region);
+      return { x:Math.min(1,Math.max(0,p.x)), y:Math.min(1,Math.max(0,p.y)) }; };
+
+    const down = e => { if (e.target.closest('.bar')) return;
+      drawing = true; a = clampPt(e); b = a; ui.region.setPointerCapture(e.pointerId); paint(); };
+    const move = e => { if (!drawing) return; b = clampPt(e); paint(); };
+    const up = () => { drawing = false; };
+    ui.region.addEventListener('pointerdown', down);
+    ui.region.addEventListener('pointermove', move);
+    ui.region.addEventListener('pointerup', up);
+    ui.region.addEventListener('pointercancel', up);
+
+    const finish = val => {
+      ui.region.removeEventListener('pointerdown', down);
+      ui.region.removeEventListener('pointermove', move);
+      ui.region.removeEventListener('pointerup', up);
+      ui.region.removeEventListener('pointercancel', up);
+      ui.region.classList.remove('on');
+      ui.region.classList.remove('drawn');
+      ui.regionBox.classList.remove('on');
+      resolve(val);
+    };
+    ui.regionOk.onclick = () => {
+      if (!a || !b) return finish(null);
+      const x1 = Math.min(a.x,b.x), y1 = Math.min(a.y,b.y);
+      finish({ x:x1, y:y1, w:Math.abs(b.x-a.x), h:Math.abs(b.y-a.y) });
+    };
+    ui.regionAll.onclick = () => finish(null);
+    ui.regionReset.onclick = () => { a = b = null; ui.regionBox.classList.remove('on');
+      ui.region.classList.remove('drawn'); ui.regionOk.disabled = true; };
+  });
+}
+
+/* ── audio ─────────────────────────────── */
+function buildAudio(){
+  const srcs = [];
+  if (opt.sys && screenStream && screenStream.getAudioTracks().length) srcs.push(screenStream);
+  if (micStream && micStream.getAudioTracks().length) srcs.push(micStream);
+  if (!srcs.length) return null;
+  if (srcs.length === 1) return srcs[0].getAudioTracks()[0];
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const dest = audioCtx.createMediaStreamDestination();
+  srcs.forEach(s => audioCtx.createMediaStreamSource(s).connect(dest));
+  return dest.stream.getAudioTracks()[0];
+}
+function startMeter(){
+  if (!micStream) return;
+  try {
+    meterCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = meterCtx.createAnalyser(); analyser.fftSize = 512;
+    meterCtx.createMediaStreamSource(micStream).connect(analyser);
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+    const bars = ui.vu.querySelectorAll('i');
+    const loop = () => {
+      analyser.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i=0;i<buf.length;i++) peak = Math.max(peak, Math.abs(buf[i]-128)/128);
+      const lvl = micMuted ? 0 : Math.min(1, peak*2.4);
+      bars.forEach((bar,i) => {
+        const on = lvl > (i+.5)/bars.length;
+        bar.style.height = (4 + (on?10:0)) + 'px';
+        bar.className = on ? (i >= bars.length-1 ? 'hot' : 'lit') : '';
+      });
+      meterRAF = requestAnimationFrame(loop);
+    };
+    loop();
+  } catch {}
+}
+function stopMeter(){
+  if (meterRAF) cancelAnimationFrame(meterRAF); meterRAF = 0;
+  if (meterCtx){ meterCtx.close().catch(()=>{}); meterCtx = null; }
+  analyser = null;
+  ui.vu.querySelectorAll('i').forEach(b => { b.style.height='4px'; b.className=''; });
+}
+
+function toggleMic(){
+  if (!micStream) return say('No microphone in this recording.');
+  micMuted = !micMuted;
+  micStream.getAudioTracks().forEach(t => t.enabled = !micMuted);
+  ui.hMic.classList.toggle('off', micMuted);
+  ui.hMic.querySelector('use').setAttribute('href', micMuted ? '#i-micoff' : '#i-mic');
+  say(micMuted ? 'Microphone muted — the video keeps rolling.' : 'Microphone live again.');
+}
+function toggleCam(){
+  if (opt.mode !== 'both') return say('The bubble only exists in Screen + cam mode.');
+  camHidden = !camHidden;
+  ui.hCam.classList.toggle('off', camHidden);
+  ui.hCam.querySelector('use').setAttribute('href', camHidden ? '#i-camoff' : '#i-cam');
+}
+function grabStill(){
+  let out = (running && canvas) ? canvas : null;
+  if (!out && blob && ui.playback.videoWidth){
+    out = document.createElement('canvas');
+    out.width = ui.playback.videoWidth; out.height = ui.playback.videoHeight;
+    out.getContext('2d').drawImage(ui.playback, 0, 0);
+  }
+  if (!out) return say('Nothing to grab yet.');
+  out.toBlob(b => {
+    if (!b) return say('Could not save that frame.', 'bad');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b); a.download = `tallyroll-still-${Date.now()}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    say('Frame saved as a PNG.', 'good');
+  }, 'image/png');
+}
+ui.hMic.onclick = toggleMic; ui.hCam.onclick = toggleCam; ui.hGrab.onclick = grabStill;
+
+/* ── clock ─────────────────────────────── */
+function startClock(){
+  stopClock();
+  clock = setInterval(() => {
+    const el = accrued + (t0 ? Date.now()-t0 : 0);
+    ui.tc.textContent = fmtTime(el);
+    const n = chunks.reduce((a,c) => a+c.size, 0);
+    if (n) ui.sizeTip.textContent = fmtBytes(n) + ' captured so far';
+    if (autoStopAt && el >= autoStopAt){
+      const mins = Math.round(autoStopAt/60000);
+      autoStopAt = 0;
+      say(`Auto-stop reached at ${mins} minutes — recording saved.`, 'good');
+      notify('Recording stopped', `${APP_NAME} hit your ${mins}-minute limit. The video is ready.`);
+      end();
+    }
+  }, 250);
+}
+const stopClock = () => { if (clock) clearInterval(clock); clock = null; };
+
+/* ── run ───────────────────────────────── */
+async function begin(){
+  if (running) return;
+  if (!MIME) return say('This browser cannot record video. Try Chrome, Edge, Firefox or Safari.', 'bad');
+  const fps = parseInt(ui.fps.value,10);
+  const wantScreen = opt.mode !== 'cam', wantCam = opt.mode === 'both' || opt.mode === 'cam';
+  running = true; crop = null;
+
+  try {
+    if (wantScreen){
+      if (!CAN_SCREEN){ running=false; return say('Screen capture is not supported here. Switch to Camera.', 'bad'); }
+      screenStream = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:fps }, audio:opt.sys });
+    }
+    if (wantCam){
+      const v = { width:{ideal:1280}, height:{ideal:720}, facingMode:'user' };
+      if (ui.camPick.value) v.deviceId = { exact: ui.camPick.value };
+      camStream = await navigator.mediaDevices.getUserMedia({ video:v });
+    }
+    if (opt.mic){
+      const a = { echoCancellation:true, noiseSuppression:true };
+      if (ui.micPick.value) a.deviceId = { exact: ui.micPick.value };
+      try { micStream = await navigator.mediaDevices.getUserMedia({ audio:a }); }
+      catch { say('Microphone unavailable — recording continues without your voice.'); }
+    }
+  } catch (e){
+    running = false; releaseDevices();
+    return say(e && e.name === 'NotAllowedError'
+      ? 'Permission was dismissed. Press Start recording and allow access to continue.'
+      : 'Could not start capture: ' + (e && e.message ? e.message : e), 'bad');
+  }
+
+  listDevices(); softReset(); closeTrim();
+  micMuted = false; camHidden = false;
+  ui.hMic.classList.remove('off'); ui.hCam.classList.remove('off');
+  ui.hMic.querySelector('use').setAttribute('href','#i-mic');
+  ui.hCam.querySelector('use').setAttribute('href','#i-cam');
+  ui.hCam.hidden = opt.mode !== 'both'; ui.hMic.hidden = !micStream;
+
+  ui.slate.style.display = 'none';
+  ui.stageCanvas.classList.add('on');
+  setPlace(opt.place);
+
+  const outVideo = buildComposite(fps).getVideoTracks()[0];
+
+  /* region picking happens after the preview is live but before the recorder starts,
+     so the canvas resize never lands mid-take */
+  if (opt.pickArea && opt.mode !== 'cam'){
+    await new Promise(r => setTimeout(r, 350));   // let the first frames land
+    crop = await pickRegion();
+    if (!running) return cleanup();
+    if (crop) say(`Recording a ${Math.round(crop.w*100)}% × ${Math.round(crop.h*100)}% region.`);
+  }
+  ui.hud.classList.add('on');
+
+  if (opt.countdown){
+    ui.count.classList.add('on');
+    for (let n=3;n>0;n--){
+      ui.countN.textContent = n;
+      ui.countN.style.animation='none'; void ui.countN.offsetWidth; ui.countN.style.animation='';
+      await new Promise(r => setTimeout(r, 750));
+      if (!running){ ui.count.classList.remove('on'); return cleanup(); }
+    }
+    ui.count.classList.remove('on');
+  }
+
+  const outAudio = buildAudio();
+  const mix = new MediaStream(outAudio ? [outVideo, outAudio] : [outVideo]);
+  chunks = [];
+  try {
+    recorder = new MediaRecorder(mix, { mimeType:MIME, videoBitsPerSecond:parseInt(ui.quality.value,10) });
+  } catch { running=false; cleanup(); return say('The recorder rejected these settings. Try a lower quality.', 'bad'); }
+
+  recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onstop = finish;
+  recorder.onerror = () => say('Recording stopped unexpectedly. Whatever was captured is kept.', 'bad');
+  recorder.start(1000);
+
+  if (screenStream) screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+    if (recorder && recorder.state !== 'inactive'){
+      say('Screen sharing ended — recording saved.', 'good');
+      notify('Recording stopped', 'Screen sharing ended. Your video is ready in ' + APP_NAME + '.');
+      end();
+    }
+  });
+
+  const mins = parseInt(ui.maxLen.value,10);
+  autoStopAt = mins ? mins*60000 : 0;
+  if (autoStopAt) askNotify();
+  t0 = Date.now(); accrued = 0;
+  startClock(); startMeter(); setState('live'); lockControls(true);
+  ui.start.disabled = true; ui.pause.disabled = false; ui.stop.disabled = false;
+  ui.save.disabled = true; ui.share.disabled = true; ui.again.disabled = true; ui.trimBtn.disabled = true;
+  ui.pause.innerHTML = ico('pause') + ' Pause';
+}
+
+function togglePause(){
+  if (!recorder) return;
+  if (recorder.state === 'recording'){
+    recorder.pause(); accrued += Date.now()-t0; t0=0;
+    setState('paused'); ui.pause.innerHTML = ico('play') + ' Resume';
+  } else if (recorder.state === 'paused'){
+    recorder.resume(); t0 = Date.now();
+    setState('live'); ui.pause.innerHTML = ico('pause') + ' Pause';
+  }
+}
+function end(){
+  running = false;
+  if (recorder && recorder.state !== 'inactive') recorder.stop(); else cleanup();
+}
+function adoptBlob(b, keepOriginal){
+  if (blobUrl) URL.revokeObjectURL(blobUrl);
+  blob = b; blobUrl = URL.createObjectURL(blob);
+  if (!keepOriginal) originalBlob = null;
+  durFixed = false;
+  ui.playback.src = blobUrl; ui.playback.classList.add('on');
+  currentShare = null; ui.shareLbl.textContent = 'Get share link';
+}
+function finish(){
+  stopClock(); stopMeter();
+  if (t0){ accrued += Date.now()-t0; t0=0; }
+  ui.tc.textContent = fmtTime(accrued);
+  originalBlob = null;
+  adoptBlob(new Blob(chunks, { type: MIME.split(';')[0] || 'video/webm' }), false);
+  ui.stageCanvas.classList.remove('on'); ui.dragtip.hidden = true;
+  ui.hCam.hidden = true; ui.hMic.hidden = true;
+  ui.sizeTip.textContent = fmtBytes(blob.size) + ' · ' + fmtTime(accrued);
+  setState('done'); lockControls(false);
+  ui.start.disabled = true; ui.pause.disabled = true; ui.stop.disabled = true;
+  ui.save.disabled = false; ui.share.disabled = false; ui.again.disabled = false; ui.trimBtn.disabled = false;
+  releaseDevices(); running = false;
+}
+function releaseDevices(){
+  [screenStream,camStream,micStream].forEach(s => s && s.getTracks().forEach(t => t.stop()));
+  screenStream = camStream = micStream = null;
+  if (ticker){ ticker.postMessage(0); ticker.terminate(); ticker = null; }
+  if (audioCtx){ audioCtx.close().catch(()=>{}); audioCtx = null; }
+  [screenVid,camVid].forEach(v => { if (v) v.srcObject = null; });
+  screenVid = camVid = null;
+}
+function cleanup(){
+  stopClock(); stopMeter(); releaseDevices(); recorder = null; running = false;
+  setState('idle'); lockControls(false);
+  ui.region.classList.remove('on');
+  ui.stageCanvas.classList.remove('on'); ui.hud.classList.remove('on'); ui.slate.style.display='';
+  ui.start.disabled = false; ui.pause.disabled = true; ui.stop.disabled = true;
+}
+function softReset(){
+  ui.playback.classList.remove('on'); ui.playback.removeAttribute('src'); ui.playback.load();
+  chunks = []; accrued = 0; ui.tc.textContent = '00:00:00';
+}
+function fullReset(){
+  softReset(); closeTrim();
+  if (blobUrl){ URL.revokeObjectURL(blobUrl); blobUrl = null; }
+  blob = null; originalBlob = null; currentShare = null; crop = null;
+  ui.shareLbl.textContent = 'Get share link';
+  ui.slate.style.display=''; ui.stageCanvas.classList.remove('on'); ui.hud.classList.remove('on');
+  ui.sizeTip.textContent = 'Balanced suits a 1080p walkthrough — roughly 30 MB a minute.';
+  setState('idle'); lockControls(false);
+  ui.start.disabled = false; ui.save.disabled = true; ui.share.disabled = true;
+  ui.again.disabled = true; ui.trimBtn.disabled = true;
+}
+function download(){
+  if (!blob) return;
+  const d = new Date();
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = `tallyroll-${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}.${EXT}`;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+ui.start.onclick = begin; ui.pause.onclick = togglePause; ui.stop.onclick = end;
+ui.save.onclick = download; ui.again.onclick = fullReset;
+
+/* ═══════════ TRIM ═══════════
+   Re-encodes by playing the clip once through a captured stream. Audio is routed
+   via Web Audio so it stays silent to you while still being recorded. */
+let trimA = 0, trimB = 0, trimDur = 0, trimDrag = null, trimRec = null, trimStop = null, durFixed = false;
+
+const CAN_TRIM = !!(HTMLMediaElement.prototype.captureStream || HTMLMediaElement.prototype.mozCaptureStream);
+function elStream(el){
+  if (el.captureStream) return el.captureStream();
+  if (el.mozCaptureStream) return el.mozCaptureStream();
+  throw new Error('This browser cannot re-encode video in-page.');
+}
+function paintTrim(){
+  const w = ui.trimTrack.clientWidth || 1;
+  const a = trimDur ? trimA/trimDur : 0, b = trimDur ? trimB/trimDur : 1;
+  ui.trimSel.style.left = (a*100)+'%'; ui.trimSel.style.width = ((b-a)*100)+'%';
+  ui.trimA.style.left = (a*w)+'px'; ui.trimB.style.left = (b*w)+'px';
+  ui.trimA.setAttribute('aria-valuenow', trimA.toFixed(1));
+  ui.trimB.setAttribute('aria-valuenow', trimB.toFixed(1));
+  ui.trimRange.textContent = `${clip(trimA)} → ${clip(trimB)}`;
+  ui.trimLen.textContent = `keeping ${clip(Math.max(0,trimB-trimA))}`;
+}
+function openTrim(){
+  if (!blob) return;
+  if (!CAN_TRIM) return say('This browser cannot trim in-page. Chrome, Edge or Firefox can.', 'bad');
+  const d = ui.playback.duration;
+  if (!isFinite(d) || d <= 0){
+    // WebM out of MediaRecorder reports Infinity until it has been seeked to the end
+    if (durFixed) return say('This clip has no readable duration, so it cannot be trimmed.', 'bad');
+    durFixed = true;
+    ui.playback.currentTime = 1e101;
+    ui.playback.onseeked = () => { ui.playback.onseeked = null; ui.playback.currentTime = 0; openTrim(); };
+    return;
+  }
+  trimDur = d; trimA = 0; trimB = d;
+  ui.trimA.setAttribute('aria-valuemax', d.toFixed(1));
+  ui.trimB.setAttribute('aria-valuemax', d.toFixed(1));
+  ui.trimPanel.hidden = false;
+  ui.trimRevert.hidden = !originalBlob;
+  paintTrim();
+  ui.trimPanel.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+function closeTrim(){ ui.trimPanel.hidden = true; ui.trimHead.classList.remove('on'); }
+ui.trimBtn.onclick = () => ui.trimPanel.hidden ? openTrim() : closeTrim();
+ui.trimClose.onclick = closeTrim;
+
+function trackPos(e){
+  const r = ui.trimTrack.getBoundingClientRect();
+  return Math.min(1, Math.max(0, (e.clientX-r.left)/r.width)) * trimDur;
+}
+function beginDrag(which){
+  return e => { trimDrag = which; ui.trimTrack.setPointerCapture(e.pointerId); e.preventDefault(); };
+}
+ui.trimA.addEventListener('pointerdown', beginDrag('a'));
+ui.trimB.addEventListener('pointerdown', beginDrag('b'));
+ui.trimTrack.addEventListener('pointermove', e => {
+  if (!trimDrag) return;
+  const t = trackPos(e);
+  if (trimDrag === 'a') trimA = Math.min(t, trimB-0.2);
+  else trimB = Math.max(t, trimA+0.2);
+  trimA = Math.max(0, trimA); trimB = Math.min(trimDur, trimB);
+  paintTrim();
+  ui.playback.currentTime = trimDrag === 'a' ? trimA : trimB;
+});
+['pointerup','pointercancel'].forEach(ev => ui.trimTrack.addEventListener(ev, () => trimDrag = null));
+[[ui.trimA,'a'],[ui.trimB,'b']].forEach(([el,which]) => el.addEventListener('keydown', e => {
+  const step = e.shiftKey ? 5 : 0.5;
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight'){
+    e.preventDefault();
+    const d = e.key === 'ArrowLeft' ? -step : step;
+    if (which === 'a') trimA = Math.max(0, Math.min(trimB-0.2, trimA+d));
+    else trimB = Math.min(trimDur, Math.max(trimA+0.2, trimB+d));
+    paintTrim(); ui.playback.currentTime = which === 'a' ? trimA : trimB;
+  }
+}));
+ui.trimPlay.onclick = () => {
+  ui.playback.currentTime = trimA; ui.playback.play();
+  ui.trimHead.classList.add('on');
+  const watch = () => {
+    if (ui.playback.paused) return;
+    ui.trimHead.style.left = ((ui.playback.currentTime/trimDur)*100)+'%';
+    if (ui.playback.currentTime >= trimB){ ui.playback.pause(); ui.trimHead.classList.remove('on'); return; }
+    requestAnimationFrame(watch);
+  };
+  watch();
+};
+ui.trimRevert.onclick = async () => {
+  if (!originalBlob) return;
+  const keep = originalBlob;
+  adoptBlob(keep, false);
+  ui.sizeTip.textContent = fmtBytes(blob.size) + ' · original restored';
+  say('Original recording restored.', 'good');
+  ui.trimRevert.hidden = true;
+  closeTrim();
+};
+
+ui.trimApply.onclick = async () => {
+  if (trimming) return;
+  if (trimB - trimA < 0.5) return say('Select at least half a second.', 'bad');
+  if (Math.abs((trimB-trimA) - trimDur) < 0.2) return say('Nothing to trim — the selection is the whole clip.');
+  trimming = true;
+  ui.trimApply.disabled = true; ui.trimPlay.disabled = true; ui.trimClose.disabled = true;
+  ui.trimProg.hidden = false;
+  ui.trimNote.textContent = 'Re-encoding in real time. Keep this tab open — you can switch windows, it keeps going.';
+
+  const src = document.createElement('video');
+  src.src = blobUrl; src.playsInline = true; src.preload = 'auto';
+  let ac = null, rec = null, url = null;
+  try {
+    await new Promise((res, rej) => { src.onloadedmetadata = res; src.onerror = () => rej(new Error('Could not read the recording.')); });
+    src.currentTime = trimA;
+    await new Promise(res => { src.onseeked = res; });
+
+    const vStream = elStream(src);
+    const tracks = [vStream.getVideoTracks()[0]].filter(Boolean);
+    // route audio through Web Audio: recorded, but silent in your speakers
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') await ac.resume();
+      const dest = ac.createMediaStreamDestination();
+      ac.createMediaElementSource(src).connect(dest);
+      if (dest.stream.getAudioTracks()[0]) tracks.push(dest.stream.getAudioTracks()[0]);
+    } catch {
+      const at = vStream.getAudioTracks()[0]; if (at) tracks.push(at);
+    }
+
+    const parts = [];
+    rec = new MediaRecorder(new MediaStream(tracks),
+      { mimeType:MIME, videoBitsPerSecond:parseInt(ui.quality.value,10) });
+    rec.ondataavailable = e => { if (e.data && e.data.size) parts.push(e.data); };
+    const done = new Promise(res => rec.onstop = res);
+    trimRec = rec;
+
+    rec.start(500);
+    await src.play();
+    const span = trimB - trimA;
+    const poll = setInterval(() => {
+      const p = Math.min(1, Math.max(0, (src.currentTime - trimA)/span));
+      ui.trimBar.style.width = Math.round(p*100)+'%';
+      if (src.currentTime >= trimB || src.ended){
+        clearInterval(poll); src.pause();
+        if (rec.state !== 'inactive') rec.stop();
+      }
+    }, 100);
+    trimStop = () => { clearInterval(poll); src.pause(); if (rec.state !== 'inactive') rec.stop(); };
+    await done;
+
+    const out = new Blob(parts, { type: MIME.split(';')[0] || 'video/webm' });
+    if (out.size < 1024) throw new Error('The trimmed file came out empty. Try a longer selection.');
+    if (!originalBlob) originalBlob = blob;
+    adoptBlob(out, true);
+    accrued = Math.round(span*1000);
+    ui.tc.textContent = fmtTime(accrued);
+    ui.sizeTip.textContent = fmtBytes(out.size) + ' · ' + fmtTime(accrued) + ' (trimmed)';
+    say('Trimmed to ' + clip(span) + '. Share or download the new version.', 'good');
+    notify('Trim finished', APP_NAME + ' finished re-encoding your clip.');
+    ui.trimRevert.hidden = false;
+    closeTrim();
+  } catch (e){
+    say(e.message || 'Trim failed.', 'bad');
+  } finally {
+    trimming = false; trimRec = null; trimStop = null;
+    if (ac) ac.close().catch(()=>{});
+    if (url) URL.revokeObjectURL(url);
+    ui.trimApply.disabled = false; ui.trimPlay.disabled = false; ui.trimClose.disabled = false;
+    ui.trimProg.hidden = true; ui.trimBar.style.width = '0';
+    ui.trimNote.textContent = 'Drag the two handles. Applying re-encodes in the browser and plays through once in real time, so a 2-minute selection takes about 2 minutes.';
+  }
+};
+
+/* ── shortcuts ─────────────────────────── */
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (e.key === '?' || (e.key === '/' && e.shiftKey)){ e.preventDefault(); return helpSheet(); }
+  if (document.querySelector('.veil') || document.querySelector('.tourcard')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'r'){ e.preventDefault(); running ? end() : begin(); }
+  else if (k === 'p' && recorder){ e.preventDefault(); togglePause(); }
+  else if (k === 'm' && running){ e.preventDefault(); toggleMic(); }
+  else if (k === 'c' && running){ e.preventDefault(); toggleCam(); }
+  else if (k === 's' && blob){ e.preventDefault(); download(); }
+});
+window.addEventListener('beforeunload', e => {
+  if ((recorder && recorder.state !== 'inactive') || trimming){ e.preventDefault(); e.returnValue = ''; }
+});
+
+/* ═══════════ GOOGLE ACCOUNT ═══════════ */
+const ACCT_KEY = 'tallyroll.account.v1', LIB_KEY = 'tallyroll.shares.v1';
+const loadLib = () => { try { return JSON.parse(localStorage.getItem(LIB_KEY)) || []; } catch { return []; } };
+const saveLib = l => { try { localStorage.setItem(LIB_KEY, JSON.stringify(l)); } catch {} };
+let account = (() => { try { return JSON.parse(localStorage.getItem(ACCT_KEY)); } catch { return null; } })();
+const saveAccount = () => { try { localStorage.setItem(ACCT_KEY, JSON.stringify(account)); } catch {} };
+let token = null, tokenClient = null;
+
+function gsiReady(){
+  return new Promise((res, rej) => {
+    if (window.google && google.accounts && google.accounts.oauth2) return res();
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.defer = true;
+    s.onload = res; s.onerror = () => rej(new Error('Could not reach Google. Check your connection.'));
+    document.head.appendChild(s);
+  });
+}
+async function requestToken(prompt, hint){
+  await gsiReady();
+  if (!tokenClient){
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/drive.file email profile',
+      callback: () => {}
+    });
+  }
+  return new Promise((res, rej) => {
+    tokenClient.callback = r => r && r.access_token ? res(r) : rej(new Error('Sign-in was cancelled.'));
+    tokenClient.error_callback = () => rej(new Error('Sign-in was cancelled.'));
+    const req = { prompt: prompt || '' };
+    if (hint) req.hint = hint;
+    tokenClient.requestAccessToken(req);
+  });
+}
+async function whoAmI(tok){
+  try {
+    const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers:{ Authorization:'Bearer '+tok } });
+    if (r.ok) return await r.json();
+  } catch {}
+  return null;
+}
+async function getToken(force){
+  if (!force && token && token.exp > Date.now()+60000) return token.value;
+  let r;
+  try { r = await requestToken('', account && account.email); }
+  catch { r = await requestToken('consent', account && account.email); }
+  token = { value:r.access_token, exp: Date.now() + (r.expires_in||3600)*1000 };
+  if (!account || !account.email){
+    const me = await whoAmI(token.value);
+    account = { email:(me && me.email) || 'your Google account', name:(me && me.name) || '', folderId:null };
+    saveAccount();
+  }
+  return token.value;
+}
+async function switchAccount(){
+  const r = await requestToken('select_account');
+  token = { value:r.access_token, exp: Date.now() + (r.expires_in||3600)*1000 };
+  const me = await whoAmI(token.value);
+  account = { email:(me && me.email) || 'your Google account', name:(me && me.name) || '', folderId:null };
+  saveAccount(); renderLib();
+  return token.value;
+}
+
+/* ── Drive ─────────────────────────────── */
+const H = tok => ({ Authorization:'Bearer '+tok });
+async function ensureFolder(tok){
+  if (account && account.folderId){
+    try {
+      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${account.folderId}?fields=id,trashed`, { headers:H(tok) });
+      if (r.ok){ const j = await r.json(); if (!j.trashed) return account.folderId; }
+    } catch {}
+  }
+  const q = encodeURIComponent(`mimeType='application/vnd.google-apps.folder' and name='${APP_FOLDER}' and trashed=false`);
+  try {
+    const s = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, { headers:H(tok) });
+    const sj = await s.json();
+    if (sj.files && sj.files[0]){ account.folderId = sj.files[0].id; saveAccount(); return account.folderId; }
+  } catch {}
+  const c = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method:'POST', headers:{ ...H(tok), 'Content-Type':'application/json' },
+    body: JSON.stringify({ name:APP_FOLDER, mimeType:'application/vnd.google-apps.folder' }) });
+  const cj = await c.json();
+  if (!cj.id) throw new Error('Could not create the ' + APP_FOLDER + ' folder in Drive.');
+  account.folderId = cj.id; saveAccount();
+  return cj.id;
+}
+function uploadToDrive(tok, file, name, folderId, onProgress){
+  return new Promise((res, rej) => {
+    fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
+      method:'POST', headers:{ ...H(tok), 'Content-Type':'application/json' },
+      body: JSON.stringify({ name, mimeType:file.type, parents:[folderId], description:'Shared with '+APP_NAME })
+    }).then(r => {
+      const loc = r.headers.get('Location');
+      if (!loc) throw new Error('Drive refused the upload. Check the Drive API is enabled for this project.');
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', loc, true);
+      xhr.setRequestHeader('Content-Type', file.type);
+      xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded/e.total);
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300){
+          try { res(JSON.parse(xhr.responseText)); } catch { rej(new Error('Upload finished but the reply was unreadable.')); }
+        } else rej(new Error('Upload failed (' + xhr.status + ').'));
+      };
+      xhr.onerror = () => rej(new Error('Upload failed — the connection dropped.'));
+      xhr.send(file);
+    }).catch(rej);
+  });
+}
+const makePublic = (tok, id) => fetch(`https://www.googleapis.com/drive/v3/files/${id}/permissions`, {
+  method:'POST', headers:{ ...H(tok), 'Content-Type':'application/json' },
+  body: JSON.stringify({ role:'reader', type:'anyone' }) });
+const deleteFile = (tok, id) => fetch(`https://www.googleapis.com/drive/v3/files/${id}`, { method:'DELETE', headers:H(tok) });
+
+async function sweep(){
+  const lib = loadLib();
+  const dead = lib.filter(x => x.exp && x.exp <= Date.now());
+  if (!dead.length) return;
+  try {
+    const tok = await getToken();
+    for (const d of dead) await deleteFile(tok, d.id).catch(()=>{});
+    saveLib(lib.filter(x => !x.exp || x.exp > Date.now()));
+    say(dead.length + ' expired recording' + (dead.length>1?'s':'') + ' deleted from your Drive.', 'good');
+    renderLib();
+  } catch {}
+}
+
+function renderLib(){
+  const lib = loadLib().sort((a,b) => b.made-a.made);
+  ui.lib.hidden = !lib.length;
+  ui.libAcct.hidden = !(account && account.email);
+  if (account && account.email) ui.libAcct.innerHTML = ico('folder','sm') + APP_FOLDER + ' · ' + esc(account.email);
+  ui.libList.innerHTML = lib.map((x,i) => {
+    const left = x.exp ? x.exp-Date.now() : Infinity;
+    const cls = (left !== Infinity && left < 86400000) ? 'meta exp' : 'meta';
+    return `<div class="item" style="animation-delay:${i*40}ms">
+      <span class="nm">${esc(x.name)}</span>
+      <span class="${cls}">${ico('clock','sm')}${x.exp ? fmtLeft(left) : 'no expiry'}</span>
+      <button class="mini" data-copy="${esc(x.url)}" data-nm="${esc(x.name)}" data-exp="${x.exp||0}">${ico('copy','sm')}Copy</button>
+      <a class="mini" href="${esc(x.url)}" target="_blank" rel="noopener">${ico('play','sm')}Open</a>
+      <button class="mini danger" data-del="${esc(x.id)}" data-name="${esc(x.name)}">${ico('trash','sm')}Delete</button>
+    </div>`; }).join('');
+
+  ui.libList.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+    const exp = parseInt(b.dataset.exp,10);
+    const text = shareText(b.dataset.nm, b.dataset.copy, exp);
+    try { await navigator.clipboard.writeText(text); say('Name, link and expiry copied.', 'good'); }
+    catch { say('Copy failed — open the link and copy from the address bar.', 'bad'); }
+  });
+  ui.libList.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    const ok = await confirmSheet({ title:'Delete this recording?',
+      msg:`“${b.dataset.name}” will be removed from your Google Drive and the share link will stop working immediately. This cannot be undone.`,
+      ok:'Delete permanently' });
+    if (!ok) return;
+    try {
+      const tok = await getToken();
+      await deleteFile(tok, b.dataset.del);
+      saveLib(loadLib().filter(x => x.id !== b.dataset.del));
+      if (currentShare && currentShare.id === b.dataset.del){ currentShare = null; ui.shareLbl.textContent = 'Get share link'; }
+      renderLib(); say('Deleted from your Drive.', 'good');
+    } catch (e){ say(e.message || 'Could not delete that file.', 'bad'); }
+  });
+}
+
+/* one place that builds the pasteable block, so every copy button matches */
+function shareText(name, url, exp){
+  const clean = String(name).replace(new RegExp('\\.' + EXT + '$'), '');
+  const when = exp ? ` (${fmtLeft(exp - Date.now()).replace(' left','')} left)` : ' (no expiry)';
+  return `${clean}${when}\n${url}\n\nRecorded with ${APP_NAME} — ${siteUrl()}`;
+}
+
+/* ── share sheet ───────────────────────── */
+function acctRow(){
+  return account && account.email
+    ? `<div class="acct">${ico('user')}<span class="who"><b>${esc(account.email)}</b>
+         <span>${ico('folder','sm')}Saves to a folder called ${APP_FOLDER}</span></span>
+         <button class="mini" data-switch>${ico('switch','sm')}Change</button></div>`
+    : `<div class="acct">${ico('user')}<span class="who"><b>No Google account connected yet</b>
+         <span>You'll pick one on the next step</span></span></div>`;
+}
+function wireSwitch(sheet){
+  const sw = sheet.querySelector('[data-switch]');
+  if (!sw) return;
+  sw.onclick = async () => {
+    try {
+      await switchAccount();
+      say('Now saving to ' + account.email, 'good');
+      const row = sheet.querySelector('.acct');
+      if (row){ row.outerHTML = acctRow(); wireSwitch(sheet); }
+    } catch (e){ say(e.message || 'Account switch cancelled.', 'bad'); }
+  };
+}
+function doneMarkup(s){
+  return `<h3>${ico('check')}Share link ready</h3>
+    <p>This recording is already uploaded. Reusing the same link — nothing was uploaded twice.</p>
+    ${acctRow()}
+    <div class="linkbox"><input type="text" id="shLink" readonly value="${esc(s.url)}">
+      <button class="btn go" id="shCopy">${ico('copy')}Copy</button></div>
+    <p style="margin-top:14px;font-size:12px;color:var(--mist)">${s.exp
+      ? `Stops working in ${fmtLeft(s.exp-Date.now())} — deleted from Drive on ${new Date(s.exp).toLocaleString()}.`
+      : 'No expiry set. Remove it any time from Your shared links.'}</p>
+    <div class="wrap" style="margin-top:18px;justify-content:flex-end">
+      <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">${ico('play')}Open</a>
+      <button class="btn" data-close>Done</button></div>`;
+}
+function wireDone(sheet, close, s){
+  const cp = sheet.querySelector('#shCopy');
+  if (cp) cp.onclick = async () => {
+    const text = shareText(s.name, s.url, s.exp);
+    try {
+      if (navigator.share && /Mobi|Android/i.test(navigator.userAgent))
+        await navigator.share({ title:s.name, text, url:s.url });
+      else { await navigator.clipboard.writeText(text); say('Name, link and expiry copied — paste it anywhere.', 'good'); }
+    } catch { sheet.querySelector('#shLink').select(); say('Press copy on your keyboard to grab the selected link.'); }
+  };
+  const dn = sheet.querySelector('[data-close]'); if (dn) dn.onclick = close;
+  wireSwitch(sheet);
+}
+function shareSheet(){
+  if (!blob) return;
+  if (!GOOGLE_CLIENT_ID) return say('Sharing is not configured on this copy. Download still works.', 'bad');
+  if (currentShare) return openSheet(doneMarkup(currentShare), (sheet, close) => wireDone(sheet, close, currentShare));
+
+  openSheet(`<h3>${ico('share')}Get a share link</h3>
+    <p>The video uploads to your own Google Drive, into a folder called ${APP_FOLDER}, and the link is set to view-only. Nobody needs an account to watch it.</p>
+    ${acctRow()}
+    <div class="field"><label class="lbl" for="shName">Name</label>
+      <input type="text" id="shName" style="width:100%" value="Screen recording ${new Date().toLocaleDateString()}"></div>
+    <div class="field"><label class="lbl" for="shExp">Delete it from my Drive after</label>
+      <select id="shExp" style="width:100%"><option value="1">1 day</option>
+        <option value="7" selected>7 days</option><option value="30">30 days</option>
+        <option value="0">Never — I'll delete it myself</option></select></div>
+    <div id="shProg" hidden><p style="margin:0" id="shMsg">Uploading…</p><div class="bar"><i id="shBar"></i></div></div>
+    <div class="wrap" style="margin-top:18px;justify-content:flex-end" id="shActs">
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn go" id="shGo">${ico('share')}Upload and get link</button></div>`,
+  (sheet, close) => {
+    sheet.querySelector('[data-close]').onclick = close;
+    wireSwitch(sheet);
+    sheet.querySelector('#shGo').onclick = async () => {
+      const days = parseInt(sheet.querySelector('#shExp').value,10);
+      const title = (sheet.querySelector('#shName').value || 'Screen recording').trim();
+      const name = title + '.' + EXT;
+      sheet.querySelector('#shActs').hidden = true;
+      sheet.querySelector('#shProg').hidden = false;
+      const bar = sheet.querySelector('#shBar'), msg = sheet.querySelector('#shMsg');
+      try {
+        msg.textContent = account ? 'Connecting to ' + account.email + '…' : 'Waiting for Google sign-in…';
+        const tok = await getToken();
+        msg.textContent = 'Finding your ' + APP_FOLDER + ' folder…';
+        const folder = await ensureFolder(tok);
+        msg.textContent = 'Uploading ' + fmtBytes(blob.size) + '…';
+        const res = await uploadToDrive(tok, new File([blob], name, { type:blob.type }), name, folder, p => {
+          bar.style.width = Math.round(p*100)+'%';
+          msg.textContent = 'Uploading — ' + Math.round(p*100) + '%';
+        });
+        msg.textContent = 'Making the link viewable…';
+        await makePublic(tok, res.id);
+        const exp = days ? Date.now()+days*86400000 : 0;
+        const url = siteUrl() + '#/v/' + res.id + '~' + (exp ? b36(Math.floor(exp/60000)) : '') + '~' + enc64(title);
+        currentShare = { id:res.id, name, url, exp, made:Date.now(), email: account && account.email };
+        const lib = loadLib(); lib.push(currentShare); saveLib(lib); renderLib();
+        ui.shareLbl.textContent = 'Show share link';
+        sheet.innerHTML = doneMarkup(currentShare);
+        wireDone(sheet, close, currentShare);
+      } catch (e){
+        sheet.querySelector('#shProg').hidden = true;
+        sheet.querySelector('#shActs').hidden = false;
+        say(e.message || 'Sharing failed.', 'bad');
+      }
+    };
+  });
+}
+ui.share.onclick = shareSheet;
+
+/* ═══════════ HELP ═══════════ */
+function helpSheet(){
+  openSheet(`<h3>${ico('help')}How ${APP_NAME} works</h3>
+    <p>Everything runs inside this browser tab. There is no server, so nothing is uploaded unless you choose to share.</p>
+    <div class="help">
+      <h4>${ico('screen')}1 · Choose what to capture</h4>
+      <ul>
+        <li><b>Screen</b> — a whole display, one window, or a single browser tab.</li>
+        <li><b>Screen + cam</b> — the same, with your face in a bubble burned into the video.</li>
+        <li><b>Camera</b> — just you. This is the mode that works on phones and tablets, where browsers don't allow screen capture at all.</li>
+        <li><b>Pick area</b> — after sharing, drag a box on the preview and only that region is recorded.</li>
+      </ul>
+      <h4>${ico('move')}2 · Place the camera bubble</h4>
+      <ul>
+        <li><b>Auto-dodge</b> checks the frame every couple of seconds and slides the bubble to the emptiest corner, so it never covers what you're showing.</li>
+        <li><b>Place it myself</b> lets you drag it anywhere — including while recording.</li>
+      </ul>
+      <h4>${ico('play')}3 · Record</h4>
+      <ul>
+        <li>Mute your mic or hide the bubble mid-take with the buttons on the preview. The video keeps rolling.</li>
+        <li><b>Grab still</b> saves the current frame as a PNG.</li>
+        <li>Set an auto-stop if you tend to forget. You'll get a system notification even if you're in another window.</li>
+      </ul>
+      <h4>${ico('scissors')}4 · Trim</h4>
+      <p>Drag the two handles to pick the part you want. Applying re-encodes in the browser and plays through once in real time, so a two-minute selection takes about two minutes. You can revert to the original afterwards.</p>
+      <h4>${ico('share')}5 · Share</h4>
+      <ul>
+        <li>The video uploads to <b>your own Google Drive</b>, into a folder called ${APP_FOLDER}. It never touches our servers, and there's no hosting bill to anyone.</li>
+        <li>Viewers need no account. Set an expiry and the link dies on schedule; the file is deleted from your Drive next time you open ${APP_NAME}.</li>
+        <li>Pressing share again on the same recording reuses the same link instead of uploading twice.</li>
+      </ul>
+      <h4>${ico('kbd')}Shortcuts</h4>
+      <p><kbd>R</kbd> start or stop · <kbd>P</kbd> pause · <kbd>M</kbd> mute · <kbd>C</kbd> camera · <kbd>S</kbd> download · <kbd>?</kbd> this help</p>
+      <h4>${ico('warn')}Known limits</h4>
+      <ul>
+        <li>Mobile browsers cannot capture the screen — no web app can. Camera mode works everywhere.</li>
+        <li>Click highlighting and drawing on screen need a native app; a web page can't see input in other windows.</li>
+        <li>Firefox records WebM rather than MP4. Both play everywhere.</li>
+      </ul>
+    </div>
+    <div class="wrap" style="margin-top:20px;justify-content:flex-end">
+      <button class="btn" id="helpTour">${ico('magic')}Replay the tour</button>
+      <button class="btn go" data-close>Got it</button></div>`,
+  (sheet, close) => {
+    sheet.querySelector('[data-close]').onclick = close;
+    sheet.querySelector('#helpTour').onclick = () => { close(); setTimeout(() => startTour(true), 260); };
+  });
+}
+ui.helpBtn.onclick = helpSheet;
+
+/* ═══════════ TOUR ═══════════ */
+const TOUR_KEY = 'tallyroll.tour.v1';
+const STEPS = [
+  { sel:'[data-tour="capture"]', title:'Pick what to capture', icon:'screen',
+    text:'Screen, screen plus your camera, or camera only. Pick area lets you draw a box and record just that part of the screen.' },
+  { sel:'[data-tour="bubble"]', title:'Your face, out of the way', icon:'magic',
+    text:'Auto-dodge moves the camera bubble to the emptiest corner as you go, so it never sits on top of what you are showing. Or drag it yourself.' },
+  { sel:'[data-tour="audio"]', title:'Voice and system sound', icon:'vol',
+    text:'Choose your microphone and whether to capture what your computer is playing. Tick “share tab audio” in the browser picker for system sound.' },
+  { sel:'[data-tour="quality"]', title:'Quality and auto-stop', icon:'gauge',
+    text:'Balanced is right for most walkthroughs. Set an auto-stop and you will get a notification even if you are working in another window.' },
+  { sel:'[data-tour="start"]', title:'Roll', icon:'play',
+    text:'Press R or this button. While recording you can mute, hide the bubble, or grab a still — all without stopping.' },
+  { sel:'[data-tour="share"]', title:'Trim, then share', icon:'share',
+    text:'Trim the clip, then get a link that uploads to your own Google Drive and expires when you say. Viewers need no account.' }
+];
+let tourAt = 0, tourEls = null;
+function clearTour(){
+  document.querySelectorAll('.tourhole,.tourcard,.tourblock').forEach(n => n.remove());
+  window.removeEventListener('resize', placeTour);
+  window.removeEventListener('scroll', placeTour, true);
+  tourEls = null;
+}
+function placeTour(){
+  if (!tourEls) return;
+  const step = STEPS[tourAt];
+  const target = document.querySelector(step.sel);
+  if (!target) return;
+  const r = target.getBoundingClientRect();
+  const pad = 6;
+  Object.assign(tourEls.hole.style, {
+    left:(r.left-pad)+'px', top:(r.top-pad)+'px',
+    width:(r.width+pad*2)+'px', height:(r.height+pad*2)+'px' });
+  const card = tourEls.card, cw = card.offsetWidth, chh = card.offsetHeight;
+  let left = Math.min(window.innerWidth-cw-12, Math.max(12, r.left + r.width/2 - cw/2));
+  let top = r.bottom + 14;
+  if (top + chh > window.innerHeight - 12) top = Math.max(12, r.top - chh - 14);
+  Object.assign(card.style, { left:left+'px', top:top+'px' });
+}
+function showStep(){
+  const step = STEPS[tourAt];
+  const target = document.querySelector(step.sel);
+  if (!target) return endTour();
+  target.scrollIntoView({ behavior:'smooth', block:'center' });
+  tourEls.card.innerHTML = `
+    <h4>${ico(step.icon)}${esc(step.title)}</h4>
+    <p>${esc(step.text)}</p>
+    <div class="tourfoot">
+      <span class="step">${tourAt+1} / ${STEPS.length}</span>
+      <button class="tourbtn" data-skip>Skip</button>
+      ${tourAt > 0 ? '<button class="tourbtn" data-back>Back</button>' : ''}
+      <button class="tourbtn go" data-next>${tourAt === STEPS.length-1 ? 'Finish' : 'Next'}</button>
+    </div>`;
+  tourEls.card.querySelector('[data-skip]').onclick = endTour;
+  const back = tourEls.card.querySelector('[data-back]');
+  if (back) back.onclick = () => { tourAt--; showStep(); };
+  tourEls.card.querySelector('[data-next]').onclick = () => {
+    if (tourAt === STEPS.length-1) return endTour();
+    tourAt++; showStep();
+  };
+  setTimeout(placeTour, 320);
+  placeTour();
+}
+function startTour(force){
+  if (running || trimming) return;
+  if (!force && localStorage.getItem(TOUR_KEY)) return;
+  clearTour();
+  const block = document.createElement('div'); block.className = 'tourblock';
+  const hole = document.createElement('div'); hole.className = 'tourhole';
+  const card = document.createElement('div'); card.className = 'tourcard';
+  document.body.append(block, hole, card);
+  block.onclick = endTour;
+  tourEls = { hole, card, block };
+  tourAt = 0; showStep();
+  window.addEventListener('resize', placeTour);
+  window.addEventListener('scroll', placeTour, true);
+}
+function endTour(){
+  try { localStorage.setItem(TOUR_KEY, '1'); } catch {}
+  clearTour();
+  setTimeout(maybeInstall, 500);
+}
+
+/* ═══════════ INSTALL ═══════════ */
+let deferredPrompt = null, installShown = false;
+const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; maybeInstall(); });
+window.addEventListener('appinstalled', () => { deferredPrompt = null; say('Installed. Open ' + APP_NAME + ' from your apps any time.', 'good'); });
+
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+function maybeInstall(){
+  if (installShown || standalone() || running || trimming) return;
+  if (!localStorage.getItem(TOUR_KEY)) return;      // let the tour finish first
+  if (!deferredPrompt && !isIOS()) return;          // nothing useful to offer
+  installShown = true;                              // once per page load — returns on refresh
+  const art = `<div class="installart">
+      <div class="ring"></div><div class="ring"></div><div class="ring"></div>
+      <svg viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#161A29" stroke="#2A3149"/>
+        <circle cx="32" cy="32" r="19" fill="none" stroke="#7DD3FC" stroke-width="2.5" opacity=".55"/>
+        <circle cx="32" cy="32" r="9.5" fill="#FF3B30"/></svg>
+      <svg class="i arrow" style="width:20px;height:20px"><use href="#i-down"/></svg>
+    </div>`;
+  const ios = `<p>Tap the <b>Share</b> button in Safari, then choose <b>Add to Home Screen</b>. ${APP_NAME} will open full-screen like an app.</p>`;
+  openSheet(`<div class="installcard">${art}
+      <h3 style="justify-content:center">Install ${APP_NAME}</h3>
+      <p style="text-align:center">Opens in one tap, runs full-screen, and works offline. It's the same app — just without the browser around it.</p>
+      ${isIOS() ? ios : ''}
+      <div class="wrap" style="justify-content:center;margin-top:6px">
+        <button class="btn" data-close>Not now</button>
+        ${deferredPrompt ? `<button class="btn go" id="doInstall">${ico('install')}Install</button>` : ''}
+      </div></div>`,
+  (sheet, close) => {
+    sheet.querySelector('[data-close]').onclick = close;
+    const go = sheet.querySelector('#doInstall');
+    if (go) go.onclick = async () => {
+      close();
+      try { deferredPrompt.prompt(); const c = await deferredPrompt.userChoice;
+        if (c.outcome !== 'accepted') say('No problem — you can install later from the browser menu.');
+        deferredPrompt = null;
+      } catch { say('Install could not start. Use the browser menu → Install.', 'bad'); }
+    };
+  }, 'installcard');
+}
+
+/* ── boot ──────────────────────────────── */
+renderLib();
+if (loadLib().some(x => x.exp && x.exp <= Date.now())) sweep();
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+setTimeout(() => { if (!localStorage.getItem(TOUR_KEY)) startTour(false); else maybeInstall(); }, 900);
+})();
+</script>
+</body>
+</html>
